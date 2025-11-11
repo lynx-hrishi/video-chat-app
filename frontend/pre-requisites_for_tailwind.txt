@@ -1,0 +1,13 @@
+npx --package tailwindcss@3.3.3 tailwindcss init -p
+npm install -D @tailwindcss/postcss
+
+postcss.config.js file changes:
+import tailwind from "@tailwindcss/postcss";
+import autoprefixer from "autoprefixer";
+
+export default {
+  plugins: [
+    tailwind(),
+    autoprefixer(),
+  ],
+};
