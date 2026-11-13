@@ -67,6 +67,65 @@ function ChatRoom() {
         return pc;
     }
 
+    const handleUserConnected = (userId) => {
+        console.log(`User Connected: ${userId}`);
+    }
+
+    const handleOffer = async (offer) => {
+        if (role === 'creating') return;
+        console.log("Offer Recieved")
+        await waitForLocalStream();
+        await pc.current.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await pc.current.createAnswer();
+        await pc.current.setLocalDescription(answer);
+        socket.emit("answer", { answer, roomId });
+    }
+
+    const handleAnswer = async (answer) => {
+        console.log("answer rec", {answer});
+        await pc.current.setRemoteDescription(new RTCSessionDescription(answer));
+    }
+
+    const handleIceCandidate = async (candidate) => {
+        try {
+            await pc.current.addIceCandidate(candidate);
+            // socket.emit("ice-candidate", { candidate, roomId })
+        } catch (err) {
+            console.error("Error adding ICE candidate", err);
+        }
+    }
+
+    const handleUserDisconnected = async (userId) => {
+        console.log("user disconnected", userId);
+
+        if (pc.current){
+            pc.current.onicecandidate = null;
+            pc.current.ontrack = null;
+            pc.current.onicegatheringstatechange = null;
+            pc.current.onconnectionstatechange = null;
+            pc.current.oniceconnectionstatechange = null;
+            pc.current.close();
+            pc.current = null;
+        }
+        await new Promise(r => setTimeout(r, 100));
+
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        setUserStream(stream);
+        pc.current = getConnectedToIceServers(stream);
+        const offer = await pc.current.createOffer();
+        await pc.current.setLocalDescription(offer);
+        console.log("New Offer created");
+        socket.emit("update-offer", { offer, roomId });
+        console.log("creating new connection", {pccur: pc.current})
+
+
+        if (remoteVideo.current?.srcObject){
+            remoteVideo.current.srcObject.getTracks().forEach(track => track.stop());
+            remoteVideo.current.srcObject = null;
+        }
+        setIsConnected(false);
+    }
+
     useEffect(() => { 
         (async () => {
             try{
@@ -85,75 +144,27 @@ function ChatRoom() {
                     setIsConnected(true);
                     call();
                 }
+
+                socket.emit("join-room", roomId, userId);
             }
             catch(err){
                 console.error("getUserMedia failed", err);
             }
         })();
 
+        console.log({role, userId, roomId})
 
         // pc.current.onicecandidateerror = (e) => {
         //     console.log("ICE candidate error:", e);
         // };
 
-        socket.emit("join-room", roomId, userId);
-        socket.on("user-connected", userId => {
-            console.log(`User Connected: ${userId}`);
-        })
+        // socket.emit("join-room", roomId, userId);
 
-        socket.on("offer", async (offer) => {
-            console.log("Offer Recieved")
-            await waitForLocalStream();
-            await pc.current.setRemoteDescription(new RTCSessionDescription(offer));
-            const answer = await pc.current.createAnswer();
-            await pc.current.setLocalDescription(answer);
-            socket.emit("answer", { answer, roomId });
-        });
-
-        socket.on("answer", async (answer) => {
-            console.log("answer rec", {answer});
-            await pc.current.setRemoteDescription(new RTCSessionDescription(answer));
-        });
-
-        socket.on("ice-candidate", async (candidate) => {
-            try {
-                await pc.current.addIceCandidate(candidate);
-                // socket.emit("ice-candidate", { candidate, roomId })
-            } catch (err) {
-                console.error("Error adding ICE candidate", err);
-            }
-        });
-
-        socket.on("user-disconnected", async (userId) => {
-            console.log("user disconnected", userId);
-
-            if (pc.current){
-                pc.current.onicecandidate = null;
-                pc.current.ontrack = null;
-                pc.current.onicegatheringstatechange = null;
-                pc.current.onconnectionstatechange = null;
-                pc.current.oniceconnectionstatechange = null;
-                pc.current.close();
-                pc.current = null;
-            }
-            await new Promise(r => setTimeout(r, 100));
-
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-            // setUserStream(stream);
-            pc.current = getConnectedToIceServers(stream);
-            const offer = await pc.current.createOffer();
-            await pc.current.setLocalDescription(offer);
-            console.log("New Offer created");
-            socket.emit("update-offer", { offer, roomId });
-            console.log("creating new connection", {pccur: pc.current})
-
-
-            if (remoteVideo.current?.srcObject){
-                remoteVideo.current.srcObject.getTracks().forEach(track => track.stop());
-                remoteVideo.current.srcObject = null;
-            }
-            setIsConnected(false);
-        });
+        // socket.on("user-connected", handleUserConnected);
+        // socket.on("offer", handleOffer);
+        // socket.on("answer", handleAnswer);
+        // socket.on("ice-candidate", handleIceCandidate);
+        // socket.on("user-disconnected", handleUserDisconnected);
 
         return () => {
             if (socket && roomId && userId) {
@@ -161,12 +172,30 @@ function ChatRoom() {
             }
 
             pc.current?.close();
-            socket.off("offer");
-            socket.off("answer");
-            socket.off("ice-candidate");
-            socket.off("user-disconnected");
+            // socket.off("offer");
+            // socket.off("answer");
+            // socket.off("ice-candidate");
+            // socket.off("user-disconnected");
         };
-    }, [setIsConnected]);
+    }, [roomId, userId]);
+
+    useEffect(() => {
+        if (!socket) return;
+
+        socket.on("user-connected", handleUserConnected);
+        socket.on("offer", handleOffer);
+        socket.on("answer", handleAnswer);
+        socket.on("ice-candidate", handleIceCandidate);
+        socket.on("user-disconnected", handleUserDisconnected);
+
+        return () => {
+            socket.off("user-connected", handleUserConnected);
+            socket.off("offer", handleOffer);
+            socket.off("answer", handleAnswer);
+            socket.off("ice-candidate", handleIceCandidate);
+            socket.off("user-disconnected", handleUserDisconnected);
+        }
+    }, [socket]);
 
     useEffect(() => {
         const handleUnload = () => {
@@ -195,7 +224,7 @@ function ChatRoom() {
         const offer = await pc.current.createOffer();
         await pc.current.setLocalDescription(offer);
         console.log("Offer created");
-        socket.emit("offer", { offer, roomId });
+        socket.emit("offer", { offer, roomId, userId });
     };
 
     function handleVideoChange (){
