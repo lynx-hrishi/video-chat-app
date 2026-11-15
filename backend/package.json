@@ -4,7 +4,9 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "build": "esbuild server.js --bundle --platform=node --target=node22 --format=esm --minify --packages=external --outfile=dist/server.mjs",
+    "start": "node ./dist/server.mjs"
   },
   "keywords": [],
   "author": "",
@@ -17,6 +19,7 @@
     "uuid": "^13.0.0"
   },
   "devDependencies": {
+    "esbuild": "^0.28.2",
     "nodemon": "^3.1.10"
   }
 }
