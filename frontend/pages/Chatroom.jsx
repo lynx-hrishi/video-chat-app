@@ -5,6 +5,7 @@ import MicOnIcon from "../components/SVGs/Mic_On";
 import MicOfIcon from "../components/SVGs/Mic_Of";
 import CameraOnIcon from "../components/SVGs/Camera_On";
 import CameraOfIcon from "../components/SVGs/Camera_Of";
+import { getLocalStream, getConnectedToIceServers, handleAnswer, handleIceCandidate, handleOffer, handleUserConnected, handleUserDisconnected } from "../services/socketServices";
 
 function ChatRoom() {
     const location = useLocation();
@@ -14,129 +15,24 @@ function ChatRoom() {
     const localVideo = useRef();
     const remoteVideo = useRef();
     const pc = useRef(null);
-    const localStreamReady = useRef(false);
+    // const localStreamReady = useRef(false);
     const [userStream, setUserStream] = useState();
     const [isRoomOwner, setIsRoomOwner] = useState(false);
     const [isConnected, setIsConnected] = useState(false);
     const [isMicOn, setIsMicOn] = useState(true);
     const [isCameraOn, setIsCameraOn] = useState(true);
 
-    function getConnectedToIceServers(localStream) {
-        const config = {
-            iceServers: [
-                { urls: "stun:stun.l.google.com:19302" },
-                {
-                urls: "turn:relay1.expressturn.com:3478",
-                username: "efgh",
-                credential: "ijkl"
-                }
-            ]
-        };
-        const pc = new RTCPeerConnection(config);
-
-        // pc.onicecandidate = e => {
-        //     if (e.candidate)
-        //     socket.emit("ice-candidate", { roomId, candidate: e.candidate });
-        // };
-
-        pc.ontrack = e => {
-            remoteVideo.current.srcObject = e.streams[0];
-        };
-
-        pc.onicecandidate = (e) => {
-        if (e.candidate) socket.emit("ice-candidate", {roomId, candidate: e.candidate});
-        };
-
-        pc.ontrack = (e) => {
-            remoteVideo.current.srcObject = e.streams[0];
-        };
-
-        pc.onconnectionstatechange = () => {
-            console.log("Connection state:", pc.connectionState);
-            if (pc.connectionState === "connected") setIsConnected(true);
-        };
-
-        pc.oniceconnectionstatechange = () => {
-            console.log("ICE state:", pc.iceConnectionState);
-        };
-
-        pc.onicegatheringstatechange = () => {
-            console.log("ICE gathering state:", pc.iceGatheringState);
-        };
-        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-        return pc;
-    }
-
-    const handleUserConnected = (userId) => {
-        console.log(`User Connected: ${userId}`);
-    }
-
-    const handleOffer = async (offer) => {
-        if (role === 'creating') return;
-        console.log("Offer Recieved")
-        await waitForLocalStream();
-        await pc.current.setRemoteDescription(new RTCSessionDescription(offer));
-        const answer = await pc.current.createAnswer();
-        await pc.current.setLocalDescription(answer);
-        socket.emit("answer", { answer, roomId });
-    }
-
-    const handleAnswer = async (answer) => {
-        console.log("answer rec", {answer});
-        await pc.current.setRemoteDescription(new RTCSessionDescription(answer));
-    }
-
-    const handleIceCandidate = async (candidate) => {
-        try {
-            await pc.current.addIceCandidate(candidate);
-            // socket.emit("ice-candidate", { candidate, roomId })
-        } catch (err) {
-            console.error("Error adding ICE candidate", err);
-        }
-    }
-
-    const handleUserDisconnected = async (userId) => {
-        console.log("user disconnected", userId);
-
-        if (pc.current){
-            pc.current.onicecandidate = null;
-            pc.current.ontrack = null;
-            pc.current.onicegatheringstatechange = null;
-            pc.current.onconnectionstatechange = null;
-            pc.current.oniceconnectionstatechange = null;
-            pc.current.close();
-            pc.current = null;
-        }
-        await new Promise(r => setTimeout(r, 100));
-
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        setUserStream(stream);
-        pc.current = getConnectedToIceServers(stream);
-        const offer = await pc.current.createOffer();
-        await pc.current.setLocalDescription(offer);
-        console.log("New Offer created");
-        socket.emit("update-offer", { offer, roomId });
-        console.log("creating new connection", {pccur: pc.current})
-
-
-        if (remoteVideo.current?.srcObject){
-            remoteVideo.current.srcObject.getTracks().forEach(track => track.stop());
-            remoteVideo.current.srcObject = null;
-        }
-        setIsConnected(false);
-    }
+    // const getLocalStream = async () => await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
 
     useEffect(() => { 
         (async () => {
             try{
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                const stream = await getLocalStream();
+                console.log({stream})
                 setUserStream(stream);
-                pc.current = getConnectedToIceServers(stream);
-                console.log(pc.current)
-                // stream.getTracks().forEach(track => pc.current.addTrack(track, stream));
-                localStreamReady.current = true;
+                pc.current = getConnectedToIceServers({ localStream: stream, remoteVideo, socket, roomId, setIsConnected });
+                console.log({pcCurrent: pc.current})
                 localVideo.current.srcObject = stream;
-                // console.log("local media ready, senders:", pc.current.getSenders());
 
                 if (role === "creating") {
                     console.log("User has created a meeting");
@@ -182,18 +78,18 @@ function ChatRoom() {
     useEffect(() => {
         if (!socket) return;
 
-        socket.on("user-connected", handleUserConnected);
-        socket.on("offer", handleOffer);
-        socket.on("answer", handleAnswer);
-        socket.on("ice-candidate", handleIceCandidate);
-        socket.on("user-disconnected", handleUserDisconnected);
+        socket.on("user-connected",  handleUserConnected);
+        socket.on("offer", (offer) => handleOffer({ offer, role, roomId, pc, socket }));
+        socket.on("answer", (answer) => handleAnswer({ answer, pc }));
+        socket.on("ice-candidate", (candidate) => handleIceCandidate({ candidate, pc }));
+        socket.on("user-disconnected", (userId) => handleUserDisconnected({ userId, setUserStream, roomId, pc, setIsConnected, remoteVideo, socket }));
 
         return () => {
-            socket.off("user-connected", handleUserConnected);
-            socket.off("offer", handleOffer);
-            socket.off("answer", handleAnswer);
-            socket.off("ice-candidate", handleIceCandidate);
-            socket.off("user-disconnected", handleUserDisconnected);
+            socket.off("user-connected",  handleUserConnected);
+            socket.off("offer", (offer) => handleOffer({ offer, role, roomId, pc, socket }));
+            socket.off("answer", (answer) => handleAnswer({ answer, pc }));
+            socket.off("ice-candidate", (candidate) => handleIceCandidate({ candidate, pc }));
+            socket.off("user-disconnected", (userId) => handleUserDisconnected({ userId, setUserStream, roomId, pc, setIsConnected, remoteVideo, socket }));
         }
     }, [socket]);
 
@@ -207,17 +103,7 @@ function ChatRoom() {
         return () => window.removeEventListener("beforeunload", handleUnload);
     }, [socket, roomId, userId]);
 
-    const waitForLocalStream = () => {
-    if (localStreamReady.current) return Promise.resolve();
-        return new Promise(resolve => {
-            const id = setInterval(() => {
-            if (localStreamReady.current) {
-                clearInterval(id);
-                resolve();
-            }
-            }, 50);
-        });
-    };
+    
     
     const call = async () => {
         if (role === "joining") return;
