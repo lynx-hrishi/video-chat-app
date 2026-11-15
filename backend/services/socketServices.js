@@ -71,6 +71,7 @@ const disconnectUserSocketHandler = ({ r_id, u_id, socket}) => {
     try {
         socket.to(r_id).emit("user-disconnected", u_id);
         const room = getInformationOfRooms(r_id);
+        console.log({room})
         const userIndex = room.participants.findIndex(u => u === u_id);
         if (userIndex === -1) {
             console.log("User already left the meeting", room.participants);
@@ -97,6 +98,8 @@ const disconnectSocketHandler = ({ userId, socket }) => {
     socket.broadcast.to(socket.id).emit("user-disconnect", userId);
 }
 
+const messageSocketHandler = ({ data, socket }) => socket.broadcast.emit("message", {message: data.message});
+
 export {
     offerSocketHandler,
     updateOfferSocketHandler,
@@ -106,4 +109,5 @@ export {
     disconnectSocketHandler,
     rooms,
     getInformationOfRooms,
+    messageSocketHandler,
 }

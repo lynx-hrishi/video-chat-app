@@ -83,6 +83,7 @@ function ChatRoom() {
         socket.on("answer", (answer) => handleAnswer({ answer, pc }));
         socket.on("ice-candidate", (candidate) => handleIceCandidate({ candidate, pc }));
         socket.on("user-disconnected", (userId) => handleUserDisconnected({ userId, setUserStream, roomId, pc, setIsConnected, remoteVideo, socket }));
+        socket.on("message", (data) => console.log(data));
 
         return () => {
             socket.off("user-connected",  handleUserConnected);
@@ -117,6 +118,7 @@ function ChatRoom() {
         const track = userStream.getVideoTracks()[0];
         track.enabled = !track.enabled;
         setIsCameraOn(!isCameraOn);
+        socket.emit("message", { message: "Video is on" });
     }
 
     function handleMicChange (){

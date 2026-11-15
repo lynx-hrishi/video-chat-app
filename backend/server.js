@@ -4,7 +4,7 @@ import http from "http";
 import { v4 } from "uuid";
 import cors from "cors";
 import { loggerMiddleware } from "./utils/logger.js";
-import { answerSocketHandler, disconnectSocketHandler, disconnectUserSocketHandler, iceCandidateSocketHandler, offerSocketHandler, updateOfferSocketHandler, rooms, getInformationOfRooms } from "./services/socketServices.js";
+import { answerSocketHandler, disconnectSocketHandler, disconnectUserSocketHandler, iceCandidateSocketHandler, offerSocketHandler, updateOfferSocketHandler, rooms, getInformationOfRooms, messageSocketHandler } from "./services/socketServices.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -74,6 +74,8 @@ io.on("connection", socket => {
     socket.on("answer", (data) => answerSocketHandler({ data, io }));
 
     socket.on("ice-candidate", (data) => iceCandidateSocketHandler({ data, socket }));
+
+    socket.on("message", (data) => messageSocketHandler({ data, socket }));
 })
 
 server.listen(3000, () => console.log(`Server at http://localhost:3000`));
