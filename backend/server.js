@@ -3,14 +3,17 @@ import { Server } from "socket.io";
 import http from "http";
 import { v4 } from "uuid";
 import cors from "cors";
+import dotenv from "dotenv";
 import { loggerMiddleware } from "./utils/logger.js";
 import { answerSocketHandler, disconnectSocketHandler, disconnectUserSocketHandler, iceCandidateSocketHandler, offerSocketHandler, updateOfferSocketHandler, rooms, getInformationOfRooms, messageSocketHandler, joinRoom, mediaStateSocketHandler, shareStateSocketHandler, chatMessageSocketHandler, reactionSocketHandler } from "./services/socketServices.js";
+
+dotenv.config({ quiet: true });
 
 const app = express();
 const server = http.createServer(app);
 const uuidV4 = v4;
 
-const allowedOrigins = ["http://localhost:5173", "http://localhost:5174"];
+const allowedOrigins = ["http://localhost:5173", "http://localhost:5174", "https://video-chat-app-cevy.onrender.com"];
 const corsOptions = {
     origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) {
@@ -70,4 +73,4 @@ io.on("connection", socket => {
     socket.on("reaction", (data) => reactionSocketHandler({ data, socket }));
 })
 
-server.listen(3000, () => console.log(`Server at http://localhost:3000`));
+server.listen(3000, () => console.log(`Server at ${process.env.BACKEND_URL}`));
