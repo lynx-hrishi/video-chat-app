@@ -1,0 +1,236 @@
+/* Shared theme and interaction styles. */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #dedfd7;
+  border-radius: 999px;
+  background: #fff;
+  color: #485348;
+  padding: 7px 10px;
+  font-size: 11px;
+  line-height: 1;
+  transition: background .2s, color .2s, border-color .2s, transform .2s;
+}
+.theme-toggle:hover { transform: translateY(-1px); }
+.theme-toggle span:first-child { font-size: 14px; }
+@media (max-width: 700px) {
+  .theme-toggle.mobile-icon-only .toggle-label { display: none; }
+}
+
+/* These rules intentionally override the base panel styles in Chatroom.css. */
+.chat-panel.panel-closed,
+.reaction-tray.panel-closed {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  transition: opacity .16s ease, transform .16s ease, visibility .16s !important;
+}
+.chat-panel.panel-closed { transform: translateY(10px) scale(.98) !important; }
+.reaction-tray.panel-closed { transform: translate(-50%, -90%) scale(.96) !important; }
+.chat-panel.panel-open,
+.reaction-tray.panel-open {
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  transition: opacity .2s ease, transform .2s ease, visibility .2s !important;
+}
+.chat-panel.panel-open { transform: translateY(0) scale(1) !important; }
+.reaction-tray.panel-open { transform: translate(-50%, -100%) scale(1) !important; }
+
+.chat-control { position: relative; }
+.unread-dot {
+  position: absolute;
+  top: 11px;
+  right: 16px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid #fbfbf8;
+  border-radius: 50%;
+  background: #df6354;
+  box-shadow: 0 0 0 2px #df635433;
+  animation: unread-pulse 1.8s ease-in-out infinite;
+}
+
+.control, .primary-button, .invite-button, .reaction-tray > button, .share-tools button {
+  transition: background-color .18s ease, color .18s ease, transform .18s ease, box-shadow .18s ease;
+}
+.control:active, .reaction-tray > button:active, .share-tools button:active { transform: scale(.94); }
+.share-layout .video-grid { animation: share-arrive .28s ease-out both; }
+.camera-off, .media-state-overlay, .media-badge { animation: media-state-in .2s ease-out both; }
+.video-name { transition: opacity .2s ease; }
+
+@keyframes share-arrive {
+  from { opacity: .65; transform: scale(.985); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes media-state-in {
+  from { opacity: 0; transform: scale(.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes unread-pulse {
+  50% { box-shadow: 0 0 0 5px #df635422; }
+}
+
+/* Dark theme: raise selector specificity above page and Tailwind utility rules. */
+html[data-theme="dark"] body { background: #151a16; color: #e8ece5; }
+html[data-theme="dark"] .home-page,
+html[data-theme="dark"] .call-page { background: #151a16; color: #e8ece5; }
+html[data-theme="dark"] .home-nav,
+html[data-theme="dark"] .call-header,
+html[data-theme="dark"] .control-bar {
+  background: #151a16;
+  border-color: #343d35;
+}
+html[data-theme="dark"] .home-bottom,
+html[data-theme="dark"] .home-footer {
+  background: transparent;
+  border-color: #343d35;
+}
+html[data-theme="dark"] .home-page .brand,
+html[data-theme="dark"] .call-header .brand { color: #a9c29f; }
+html[data-theme="dark"] .home-page .brand span,
+html[data-theme="dark"] .call-header .brand span { color: #e5e9e1; }
+html[data-theme="dark"] .nav-note,
+html[data-theme="dark"] .nav-link,
+html[data-theme="dark"] .hero-copy > p,
+html[data-theme="dark"] .privacy-note,
+html[data-theme="dark"] .home-bottom small,
+html[data-theme="dark"] .home-signoff,
+html[data-theme="dark"] .home-footer,
+html[data-theme="dark"] .call-time,
+html[data-theme="dark"] .call-status { color: #b0b9ae; }
+html[data-theme="dark"] .hero h1,
+html[data-theme="dark"] .home-bottom b { color: #e8ece5; }
+html[data-theme="dark"] .home-bottom { border-color: #343d35; }
+html[data-theme="dark"] .hero-art { background: #252e27; }
+html[data-theme="dark"] .orbit { border-color: #3a473b; }
+html[data-theme="dark"] .art-card { background: #303a31; color: #eef2eb; }
+html[data-theme="dark"] .art-card small,
+html[data-theme="dark"] .art-caption { color: #bcc6b7; }
+html[data-theme="dark"] .room-label,
+html[data-theme="dark"] .room-label b { color: #bdc6bb; }
+html[data-theme="dark"] .invite-button,
+html[data-theme="dark"] .theme-toggle { background: #29332b; border-color: #414d42; color: #e2eade; }
+html[data-theme="dark"] .video-card,
+html[data-theme="dark"] .video-card video,
+html[data-theme="dark"] .remote-card { background: #252d27; }
+html[data-theme="dark"] .empty-state { color: #e1e8dd; }
+html[data-theme="dark"] .empty-state span,
+html[data-theme="dark"] .camera-off { color: #d2dbcf; }
+html[data-theme="dark"] .camera-off { background: #252d27; }
+html[data-theme="dark"] .control { color: #d6ded3; }
+html[data-theme="dark"] .control span { color: #b9c2b7; }
+html[data-theme="dark"] .control:hover { background: #2a342c; }
+html[data-theme="dark"] .control.selected { background: #354536; color: #d6edca; }
+html[data-theme="dark"] .control.muted { background: #492b29; color: #ffaca0; }
+html[data-theme="dark"] .control.muted span { color: #ffb4a8; }
+html[data-theme="dark"] .control.leave-control { background: #a84940; color: white; }
+html[data-theme="dark"] .chat-panel,
+html[data-theme="dark"] .reaction-tray,
+html[data-theme="dark"] .reaction-tray form {
+  background: #202822;
+  border-color: #3b463d;
+  color: #e8ece5;
+}
+html[data-theme="dark"] .chat-panel > header,
+html[data-theme="dark"] .chat-panel > form { border-color: #3a443b; }
+html[data-theme="dark"] .chat-panel > header button,
+html[data-theme="dark"] .message b,
+html[data-theme="dark"] .reaction-burst small { color: #c0c9bd; }
+html[data-theme="dark"] .message span { background: #303a32; color: #edf1ea; }
+html[data-theme="dark"] .message.mine span { background: #3c503d; }
+html[data-theme="dark"] .chat-empty,
+html[data-theme="dark"] .step-no,
+html[data-theme="dark"] .step-arrow { color: #bcc5b9; }
+html[data-theme="dark"] .chat-panel input,
+html[data-theme="dark"] .reaction-tray input {
+  background: #18201a;
+  border-color: #465247;
+  color: #f1f4ee;
+}
+html[data-theme="dark"] .chat-panel input::placeholder,
+html[data-theme="dark"] .reaction-tray input::placeholder,
+html[data-theme="dark"] .home-page input::placeholder { color: #aab5a8; }
+html[data-theme="dark"] .reaction-tray > button { color: #f1f4ee; }
+html[data-theme="dark"] .reaction-tray > button:hover { background: #364238; }
+html[data-theme="dark"] .home-page input { color: #f1f4ee; }
+html[data-theme="dark"] .join-wrap form { border-color: #586457; }
+html[data-theme="dark"] .unread-dot { border-color: #1c231e; }
+html[data-theme="dark"] .eyebrow,
+html[data-theme="dark"] .nav-link span,
+html[data-theme="dark"] .privacy-note span,
+html[data-theme="dark"] .join-wrap form button { color: #b6cba9; }
+html[data-theme="dark"] .hero h1 em { color: #b6cba9; }
+html[data-theme="dark"] .hero-art .art-sun,
+html[data-theme="dark"] .hero-art .sparkle,
+html[data-theme="dark"] .sound-bars { color: #bdcfae; }
+html[data-theme="dark"] .face-one { background: #574b3d; color: #f0d9bf; }
+html[data-theme="dark"] .face-two { background: #3f5140; color: #d5e9ca; }
+html[data-theme="dark"] .step-arrow { color: #aab9a5; }
+html[data-theme="dark"] .empty-state .avatar { background: #354437; color: #c2d7b7; }
+html[data-theme="dark"] .empty-state button { color: #c1d8b7; }
+html[data-theme="dark"] .control.screen-control,
+html[data-theme="dark"] .control.marker-control { color: #b6cba9; }
+html[data-theme="dark"] .control.screen-control.selected,
+html[data-theme="dark"] .control.marker-control.selected { color: #e0f0d8; }
+html[data-theme="dark"] .video-name i,
+html[data-theme="dark"] .call-status i { background: #a9c29f; }
+html[data-theme="dark"] .call-status i:not(.online) { background: #d2b579; }
+html[data-theme="dark"] .reaction-tray .custom-emoji-button { border-color: #74866f; color: #c7ddbd; }
+html[data-theme="dark"] .chat-panel > form button,
+html[data-theme="dark"] .reaction-tray form button { background: #547454; color: #f4f7f1; }
+html[data-theme="dark"] .theme-toggle:hover { background: #354536; }
+html[data-theme="dark"] .control:focus-visible,
+html[data-theme="dark"] .theme-toggle:focus-visible { outline-color: #c4d9b8; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+/* Larger supporting copy on the landing page. */
+.privacy-note { font-size: 14px !important; }
+.home-bottom b { font-size: 14px !important; }
+.home-bottom small { font-size: 13px !important; }
+.step-no { font-size: 12px !important; }
+.step-arrow { font-size: 18px !important; }
+.home-signoff { font-size: 14px !important; }
+.home-footer { font-size: 12px !important; }
+
+/* Call controls stay full size and become a touch-scrollable bottom strip on phones. */
+.control span { font-size: 11px !important; }
+.call-time { font-size: 13px !important; }
+.call-status { font-size: 12px !important; }
+.room-label { font-size: 10px !important; }
+.room-label b { font-size: 12px !important; }
+.invite-button { font-size: 13px !important; }
+
+@media (max-width: 700px) {
+  .control-bar { min-width: 0; overflow: hidden; }
+  .controls {
+    width: 100%;
+    min-width: 0;
+    justify-content: flex-start !important;
+    gap: 6px !important;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 4px 7px;
+    touch-action: pan-x;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #879879 transparent;
+  }
+  .controls::-webkit-scrollbar { height: 4px; }
+  .controls::-webkit-scrollbar-thumb { border-radius: 999px; background: #879879; }
+  .control { flex: 0 0 66px; }
+  .control.leave-control { flex: 0 0 68px; }
+  .home-bottom { row-gap: 18px !important; }
+  .home-bottom > div { min-width: 46% !important; }
+  .home-footer { gap: 12px; }
+}
+html[data-theme="dark"] .controls::-webkit-scrollbar-thumb { background: #9db694; }

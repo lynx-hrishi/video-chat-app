@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import socket from "../components/Websocket/Socket_Connector";
+import ThemeToggle from "../components/ThemeToggle";
 import "./Chatroom.css";
 
 const identityFor = (roomId) => {
@@ -11,6 +12,12 @@ const identityFor = (roomId) => {
     localStorage.setItem(key, id);
   }
   return id;
+};
+
+const playSound = (file) => {
+  const audio = new Audio(`/sounds/${file}.mp3`);
+  audio.volume = 0.45;
+  audio.play().catch(() => {});
 };
 
 export default function ChatRoom() {
@@ -44,8 +51,11 @@ export default function ChatRoom() {
   const [shareSize, setShareSize] = useState({ width: 16, height: 9 });
   const [notice, setNotice] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
+  const chatOpenRef = useRef(chatOpen);
+  chatOpenRef.current = chatOpen;
   const [chatDraft, setChatDraft] = useState("");
   const [messages, setMessages] = useState([]);
+  const [unreadMessage, setUnreadMessage] = useState(false);
   const [customEmojiOpen, setCustomEmojiOpen] = useState(false);
   const [customEmoji, setCustomEmoji] = useState("");
   const [reaction, setReaction] = useState(null);
@@ -70,6 +80,7 @@ export default function ChatRoom() {
       const incoming = event.streams[0];
       if (remoteVideo.current && incoming) remoteVideo.current.srcObject = incoming;
       setRemotePresent(true);
+      playSound("call-join");
     };
     connection.onicecandidate = ({ candidate }) => candidate && socket.emit("ice-candidate", { roomId, candidate, userId });
     connection.onconnectionstatechange = () => {
@@ -118,9 +129,16 @@ export default function ChatRoom() {
     const onShareState = ({ userId: peerId, active, width, height }) => {
       if (peerId === userId) return;
       setRemoteShare(active ? { userId: peerId, width, height } : null);
+      if (active) playSound("presentation-start");
       if (active && width && height) setShareSize({ width, height });
     };
-    const onChatMessage = (message) => setMessages((items) => [...items, message].slice(-100));
+    const onChatMessage = (message) => {
+      setMessages((items) => [...items, message].slice(-100));
+      if (message.userId !== userId) {
+        playSound("message-arrival");
+        if (!chatOpenRef.current) setUnreadMessage(true);
+      }
+    };
     const onReaction = ({ emoji, userId: peerId }) => {
       const key = Date.now() + Math.random();
       setReaction({ emoji, userId: peerId, key });
@@ -154,6 +172,7 @@ export default function ChatRoom() {
     const onDisconnected = ({ userId: peerId }) => {
       if (peerId === userId) return;
       setRemotePresent(false);
+      playSound("call-leave");
       setRemoteShare(null);
       setRemoteMedia({ micOn: true, cameraOn: true });
       if (remoteVideo.current) remoteVideo.current.srcObject = null;
@@ -250,6 +269,7 @@ export default function ChatRoom() {
       }
       videoTrack.onended = () => stopShare();
       socket.emit("share-state", { roomId, userId, state: { active: true, width, height } });
+      playSound("presentation-start");
       setSharing(true);
     } catch (error) { if (error.name !== "NotAllowedError") setNotice("Screen sharing could not be started."); }
   };
@@ -340,7 +360,7 @@ export default function ChatRoom() {
   const markerHeight = Math.max(1, Math.round(shareSize.height * markerScale));
 
   return <main className="call-page grid h-dvh min-h-[520px] grid-rows-[72px_minmax(0,1fr)_98px] bg-[#f6f6f2] text-[#2e312c] max-[700px]:grid-rows-[62px_minmax(0,1fr)_112px]">
-    <header className="call-header flex items-center border-b border-[#e6e6df] bg-[#fafaf7] px-[34px] max-[700px]:px-4"><a className="brand" href="/">◉ <span>pair</span></a><div className="room-label ml-[34px] max-[700px]:ml-4">ROOM <b>{roomId.slice(0, 8).toUpperCase()}</b></div><button className="invite-button ml-auto rounded-md border border-[#dedfd7] bg-white px-[14px] py-[10px] text-xs font-semibold text-[#526349] max-[700px]:px-[10px] max-[700px]:py-2" onClick={copyInvite}>＋ <span>Invite someone</span></button></header>
+    <header className="call-header flex items-center border-b border-[#e6e6df] bg-[#fafaf7] px-[34px] max-[700px]:px-4"><a className="brand" href="/">◉ <span>pair</span></a><div className="room-label ml-[34px] max-[700px]:ml-3">ROOM <b>{roomId.slice(0, 8).toUpperCase()}</b></div><div className="ml-auto flex shrink-0 items-center gap-2"><ThemeToggle mobileIconOnly /><button className="invite-button rounded-md border border-[#dedfd7] bg-white px-[14px] py-[10px] text-xs font-semibold text-[#526349] max-[700px]:px-[10px] max-[700px]:py-2" aria-label="Invite someone" title="Invite someone" onClick={copyInvite}>＋ <span className="max-[700px]:hidden">Invite someone</span></button></div></header>
     <section className={`stage ${(sharing || remoteShare) ? `share-layout ${(sharing ? "local" : "remote")}-share ${shareSize.width / shareSize.height < 1 ? "portrait-share" : "landscape-share"}` : ""}`}>
       <div className="video-grid grid min-h-0 grid-cols-2 gap-[15px] max-[700px]:grid-cols-1 max-[700px]:grid-rows-2 max-[700px]:gap-[10px]">
         <article className={`video-card remote-card ${remoteShare ? "share-primary" : ""}`}>
@@ -361,8 +381,8 @@ export default function ChatRoom() {
       </div>
       {sharing && <div className="share-tools"><span>Screen sharing</span><button className={markers ? "active" : ""} onClick={() => setMarkers(!markers)}>✎ {markers ? "Stop drawing" : "Draw on screen"}</button><button onClick={clearCanvas}>Clear</button><button className={shareAudio ? "active" : ""} onClick={toggleShareAudio}>♫ Share audio {shareAudio ? "On" : "Off"}</button></div>}
       {reaction && <div className="reaction-burst" key={reaction.key}><span>{reaction.emoji}</span><small>{reaction.userId === userId ? "You" : "Guest"}</small></div>}
-      {chatOpen && <aside className="chat-panel"><header><strong>Messages</strong><button onClick={() => setChatOpen(false)}>×</button></header><div className="message-list">{messages.length === 0 && <p className="chat-empty">Say hello to get things going.</p>}{messages.map((message, index) => <div className={`message ${message.userId === userId ? "mine" : "theirs"}`} key={`${message.sentAt}-${index}`}><b>{message.userId === userId ? "You" : "Guest"}</b><span>{message.text}</span></div>)}</div><form onSubmit={sendMessage}><input value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} placeholder="Write a message…" maxLength={1000} /><button disabled={!chatDraft.trim()}>↑</button></form></aside>}
-      {reactionsOpen && <div className="reaction-tray">{["❤️", "😂", "👏", "🔥", "🎉"].map((emoji) => <button key={emoji} onClick={() => sendReaction(emoji)}>{emoji}</button>)}<button className="custom-emoji-button" onClick={() => setCustomEmojiOpen(!customEmojiOpen)}>＋</button>{customEmojiOpen && <form onSubmit={(event) => { event.preventDefault(); sendReaction(customEmoji.trim()); setCustomEmoji(""); setCustomEmojiOpen(false); }}><input autoFocus value={customEmoji} onChange={(event) => setCustomEmoji(event.target.value)} placeholder="Paste any emoji" maxLength={12} /><button disabled={!customEmoji.trim()}>Send</button></form>}</div>}
+      <aside className={`chat-panel ${chatOpen ? "panel-open" : "panel-closed"}`} aria-hidden={!chatOpen} inert={!chatOpen}><header><strong>Messages</strong><button onClick={() => setChatOpen(false)}>×</button></header><div className="message-list">{messages.length === 0 && <p className="chat-empty">Say hello to get things going.</p>}{messages.map((message, index) => <div className={`message ${message.userId === userId ? "mine" : "theirs"}`} key={`${message.sentAt}-${index}`}><b>{message.userId === userId ? "You" : "Guest"}</b><span>{message.text}</span></div>)}</div><form onSubmit={sendMessage}><input value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} placeholder="Write a message…" maxLength={1000} /><button disabled={!chatDraft.trim()}>↑</button></form></aside>
+      <div className={`reaction-tray ${reactionsOpen ? "panel-open" : "panel-closed"}`} aria-hidden={!reactionsOpen} inert={!reactionsOpen}>{["❤️", "😂", "👏", "🔥", "🎉"].map((emoji) => <button key={emoji} onClick={() => sendReaction(emoji)}>{emoji}</button>)}<button className="custom-emoji-button" onClick={() => setCustomEmojiOpen(!customEmojiOpen)}>＋</button>{customEmojiOpen && reactionsOpen && <form onSubmit={(event) => { event.preventDefault(); sendReaction(customEmoji.trim()); setCustomEmoji(""); setCustomEmojiOpen(false); }}><input autoFocus value={customEmoji} onChange={(event) => setCustomEmoji(event.target.value)} placeholder="Paste any emoji" maxLength={12} /><button disabled={!customEmoji.trim()}>Send</button></form>}</div>
       {notice && <div className="notice">{notice}<button onClick={() => setNotice("")}>×</button></div>}
       {!joined && !notice && <div className="notice">Connecting to your devices…</div>}
     </section>
@@ -370,7 +390,7 @@ export default function ChatRoom() {
       <button className={`control ${!micOn ? "muted" : ""}`} onClick={() => toggleTrack("audio")} title={micOn ? "Mute microphone" : "Turn on microphone"}>{micOn ? "♩" : "♩̸"}<span>{micOn ? "Mute" : "Unmute"}</span></button>
       <button className={`control ${!cameraOn ? "muted" : ""}`} onClick={() => toggleTrack("video")} title={cameraOn ? "Turn camera off" : "Turn camera on"}>{cameraOn ? "▣" : "▧"}<span>{cameraOn ? "Stop video" : "Start video"}</span></button>
       <button className={`control screen-control ${sharing ? "selected" : ""}`} onClick={sharing ? stopShare : startShare}>{sharing ? "▣" : "▧"}<span>{sharing ? "Stop sharing" : "Share screen"}</span></button>
-      <button className={`control ${chatOpen ? "selected" : ""}`} onClick={() => setChatOpen(!chatOpen)}>▤<span>Chat</span></button>
+      <button className={`control chat-control ${chatOpen ? "selected" : ""}`} onClick={() => { setChatOpen((open) => !open); setUnreadMessage(false); }} aria-label="Open chat">▤{unreadMessage && !chatOpen && <i className="unread-dot" />}<span>Chat</span></button>
       <button className={`control marker-control ${reactionsOpen ? "selected" : ""}`} onClick={() => setReactionsOpen(!reactionsOpen)}>☺<span>React</span></button>
       <button className="control leave-control" onClick={() => navigate("/")}>↗<span>Leave</span></button>
     </div><div className="call-status">{remotePresent ? <><i className="online" /> Connected</> : <><i /> Waiting</>}</div></footer>
