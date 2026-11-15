@@ -1,4 +1,5 @@
 const rooms = new Map();
+const lastReactionAt = new Map();
 
 const getInformationOfRooms = (roomId) => rooms.get(roomId);
 
@@ -69,12 +70,27 @@ function shareStateSocketHandler({ data, socket }) {
   const room = rooms.get(data.roomId);
   if (room?.participants.has(data.userId)) socket.to(data.roomId).emit("share-state", { userId: data.userId, ...data.state });
 }
+function chatMessageSocketHandler({ data, socket }) {
+  const room = rooms.get(data.roomId);
+  const text = typeof data.text === "string" ? data.text.trim().slice(0, 1000) : "";
+  if (!text || !room?.participants.has(data.userId) || room.participants.get(data.userId) !== socket.id) return;
+  socket.to(data.roomId).emit("chat-message", { userId: data.userId, text, sentAt: Date.now() });
+}
+function reactionSocketHandler({ data, socket }) {
+  const room = rooms.get(data.roomId);
+  const now = Date.now();
+  if (!room?.participants.has(data.userId) || room.participants.get(data.userId) !== socket.id || now - (lastReactionAt.get(socket.id) || 0) < 150) return;
+  if (typeof data.emoji !== "string" || !data.emoji.trim() || data.emoji.length > 12) return;
+  lastReactionAt.set(socket.id, now);
+  socket.to(data.roomId).emit("reaction", { userId: data.userId, emoji: data.emoji.trim() });
+}
 function updateOfferSocketHandler({ data, socket, io }) { offerSocketHandler({ data, socket, io }); }
 function disconnectSocketHandler({ socket }) {
+  lastReactionAt.delete(socket.id);
   for (const [roomId, room] of rooms) {
     const participant = [...room.participants.entries()].find(([, socketId]) => socketId === socket.id);
     if (participant) removeParticipant(roomId, participant[0], socket);
   }
 }
 
-export { rooms, getInformationOfRooms, joinRoom, offerSocketHandler, updateOfferSocketHandler, answerSocketHandler, iceCandidateSocketHandler, disconnectUserSocketHandler, disconnectSocketHandler, messageSocketHandler, mediaStateSocketHandler, shareStateSocketHandler };
+export { rooms, getInformationOfRooms, joinRoom, offerSocketHandler, updateOfferSocketHandler, answerSocketHandler, iceCandidateSocketHandler, disconnectUserSocketHandler, disconnectSocketHandler, messageSocketHandler, mediaStateSocketHandler, shareStateSocketHandler, chatMessageSocketHandler, reactionSocketHandler };

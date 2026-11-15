@@ -4,7 +4,7 @@ import http from "http";
 import { v4 } from "uuid";
 import cors from "cors";
 import { loggerMiddleware } from "./utils/logger.js";
-import { answerSocketHandler, disconnectSocketHandler, disconnectUserSocketHandler, iceCandidateSocketHandler, offerSocketHandler, updateOfferSocketHandler, rooms, getInformationOfRooms, messageSocketHandler, joinRoom, mediaStateSocketHandler, shareStateSocketHandler } from "./services/socketServices.js";
+import { answerSocketHandler, disconnectSocketHandler, disconnectUserSocketHandler, iceCandidateSocketHandler, offerSocketHandler, updateOfferSocketHandler, rooms, getInformationOfRooms, messageSocketHandler, joinRoom, mediaStateSocketHandler, shareStateSocketHandler, chatMessageSocketHandler, reactionSocketHandler } from "./services/socketServices.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -66,6 +66,8 @@ io.on("connection", socket => {
     socket.on("message", (data) => messageSocketHandler({ data, socket }));
     socket.on("media-state", (data) => mediaStateSocketHandler({ data, socket }));
     socket.on("share-state", (data) => shareStateSocketHandler({ data, socket }));
+    socket.on("chat-message", (data) => chatMessageSocketHandler({ data, socket }));
+    socket.on("reaction", (data) => reactionSocketHandler({ data, socket }));
 })
 
 server.listen(3000, () => console.log(`Server at http://localhost:3000`));

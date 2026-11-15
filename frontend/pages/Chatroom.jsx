@@ -25,8 +25,11 @@ export default function ChatRoom() {
   const screenStream = useRef(null);
   const audioContext = useRef(null);
   const markerChannel = useRef(null);
-  const pendingCandidates = useRef([]);
   const drawing = useRef(false);
+  const paintMarkerRef = useRef(() => {});
+  const pendingMarkerMessages = useRef([]);
+  const lastReactionAt = useRef(0);
+  const pendingCandidates = useRef([]);
   const hasJoined = useRef(false);
   const mediaState = useRef({ micOn: true, cameraOn: true });
   const [joined, setJoined] = useState(false);
@@ -37,10 +40,16 @@ export default function ChatRoom() {
   const [sharing, setSharing] = useState(false);
   const [shareAudio, setShareAudio] = useState(false);
   const [markers, setMarkers] = useState(false);
-  const [remoteMarkers, setRemoteMarkers] = useState(false);
   const [remoteShare, setRemoteShare] = useState(null);
   const [shareSize, setShareSize] = useState({ width: 16, height: 9 });
   const [notice, setNotice] = useState("");
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatDraft, setChatDraft] = useState("");
+  const [messages, setMessages] = useState([]);
+  const [customEmojiOpen, setCustomEmojiOpen] = useState(false);
+  const [customEmoji, setCustomEmoji] = useState("");
+  const [reaction, setReaction] = useState(null);
+  const [reactionsOpen, setReactionsOpen] = useState(false);
 
   const makePeer = useCallback(() => {
     pc.current?.close();
@@ -52,14 +61,7 @@ export default function ChatRoom() {
       markerChannel.current = channel;
       channel.onmessage = ({ data }) => {
         const message = JSON.parse(data);
-        setRemoteMarkers(true);
-        if (message.type === "clear") { clearCanvas(false); return; }
-        const context = canvas.current?.getContext("2d");
-        if (!context) return;
-        if (message.type === "start") context.beginPath();
-        context.lineWidth = 5; context.lineCap = "round"; context.strokeStyle = "#f5c451";
-        if (message.type === "start") context.moveTo(message.x * canvas.current.width, message.y * canvas.current.height);
-        if (message.type === "point") { context.lineTo(message.x * canvas.current.width, message.y * canvas.current.height); context.stroke(); }
+        paintMarkerRef.current(message);
       };
     };
     const stream = localStream.current;
@@ -117,7 +119,12 @@ export default function ChatRoom() {
       if (peerId === userId) return;
       setRemoteShare(active ? { userId: peerId, width, height } : null);
       if (active && width && height) setShareSize({ width, height });
-      if (!active) setRemoteMarkers(false);
+    };
+    const onChatMessage = (message) => setMessages((items) => [...items, message].slice(-100));
+    const onReaction = ({ emoji, userId: peerId }) => {
+      const key = Date.now() + Math.random();
+      setReaction({ emoji, userId: peerId, key });
+      window.setTimeout(() => setReaction((current) => current?.key === key ? null : current), 1900);
     };
     const onOffer = async ({ offer, from }) => {
       if (from === userId || !pc.current) return;
@@ -148,7 +155,6 @@ export default function ChatRoom() {
       if (peerId === userId) return;
       setRemotePresent(false);
       setRemoteShare(null);
-      setRemoteMarkers(false);
       setRemoteMedia({ micOn: true, cameraOn: true });
       if (remoteVideo.current) remoteVideo.current.srcObject = null;
       pendingCandidates.current = [];
@@ -166,6 +172,8 @@ export default function ChatRoom() {
     socket.on("user-connected", onConnected);
     socket.on("peer-media-state", onPeerMedia);
     socket.on("share-state", onShareState);
+    socket.on("chat-message", onChatMessage);
+    socket.on("reaction", onReaction);
     socket.on("offer", onOffer);
     socket.on("answer", onAnswer);
     socket.on("ice-candidate", onCandidate);
@@ -177,6 +185,8 @@ export default function ChatRoom() {
       socket.off("user-connected", onConnected);
       socket.off("peer-media-state", onPeerMedia);
       socket.off("share-state", onShareState);
+      socket.off("chat-message", onChatMessage);
+      socket.off("reaction", onReaction);
       socket.off("offer", onOffer);
       socket.off("answer", onAnswer);
       socket.off("ice-candidate", onCandidate);
@@ -213,7 +223,7 @@ export default function ChatRoom() {
     if (audioSender && microphone) await audioSender.replaceTrack(microphone);
     audioContext.current?.close(); audioContext.current = null;
     socket.emit("share-state", { roomId, userId, state: { active: false } });
-    setSharing(false); setShareAudio(false); setMarkers(false); clearCanvas();
+    setSharing(false); setShareAudio(false); setMarkers(false);
   }, [roomId, userId]);
 
   const startShare = async () => {
@@ -251,26 +261,83 @@ export default function ChatRoom() {
     setShareAudio(track.enabled);
   };
 
-  const clearCanvas = (announce = true) => {
-    const context = canvas.current?.getContext("2d");
-    if (context) context.clearRect(0, 0, canvas.current.width, canvas.current.height);
-    if (announce && markerChannel.current?.readyState === "open") markerChannel.current.send(JSON.stringify({ type: "clear" }));
+  const paintMarker = useCallback((message) => {
+    const surface = canvas.current;
+    if (!surface) {
+      if (message.action === "clear") pendingMarkerMessages.current = [message];
+      else if (pendingMarkerMessages.current.length < 2000) pendingMarkerMessages.current.push(message);
+      return;
+    }
+    const context = surface.getContext("2d");
+    if (message.action === "clear") { context.clearRect(0, 0, surface.width, surface.height); return; }
+    const point = message.points?.[0];
+    if (!point) return;
+    context.lineWidth = message.brushSize || Math.max(4, surface.width / 320); context.lineCap = "round"; context.lineJoin = "round"; context.strokeStyle = message.color || "#f5c451";
+    const x = point.x * surface.width; const y = point.y * surface.height;
+    if (message.action === "start") { context.beginPath(); context.moveTo(x, y); }
+    if (message.action === "draw") { context.lineTo(x, y); context.stroke(); }
+  }, []);
+  paintMarkerRef.current = paintMarker;
+  useEffect(() => {
+    if (!canvas.current || !pendingMarkerMessages.current.length) return;
+    for (const message of pendingMarkerMessages.current.splice(0)) paintMarker(message);
+  }, [sharing, remoteShare, shareSize, paintMarker]);
+  const broadcastMarker = (message) => {
+    paintMarker(message);
+    if (markerChannel.current?.readyState === "open") markerChannel.current.send(JSON.stringify(message));
   };
-  const draw = (event) => {
-    if (!drawing.current || !canvas.current) return;
-    const bounds = canvas.current.getBoundingClientRect();
-    const x = (event.clientX - bounds.left) * canvas.current.width / bounds.width;
-    const y = (event.clientY - bounds.top) * canvas.current.height / bounds.height;
-    const context = canvas.current.getContext("2d");
-    context.lineWidth = 5; context.lineCap = "round"; context.strokeStyle = "#f5c451";
-    context.lineTo(x, y); context.stroke(); context.beginPath(); context.moveTo(x, y);
-    if (markerChannel.current?.readyState === "open") markerChannel.current.send(JSON.stringify({ type: "point", x: x / canvas.current.width, y: y / canvas.current.height }));
+  const clearCanvas = () => broadcastMarker({ action: "clear" });
+  const normalizedMarkerPoint = (event) => {
+    if (!canvas.current) return null;
+    const box = canvas.current.getBoundingClientRect();
+    const ratio = shareSize.width / shareSize.height;
+    let left = box.left; let top = box.top; let width = box.width; let height = box.height;
+    if (width / height > ratio) { width = height * ratio; left += (box.width - width) / 2; }
+    else { height = width / ratio; top += (box.height - height) / 2; }
+    const x = (event.clientX - left) / width; const y = (event.clientY - top) / height;
+    if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+    return { x, y };
+  };
+  const beginMarker = (event) => {
+    if (!markers) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    drawing.current = true;
+    const point = normalizedMarkerPoint(event);
+    if (point) broadcastMarker({ action: "start", points: [point], color: "#f5c451", brushSize: 5 });
+  };
+  const moveMarker = (event) => {
+    if (!drawing.current) return;
+    const point = normalizedMarkerPoint(event);
+    if (point) broadcastMarker({ action: "draw", points: [point], color: "#f5c451", brushSize: 5 });
+  };
+
+  const sendMessage = (event) => {
+    event.preventDefault();
+    const text = chatDraft.trim();
+    if (!text) return;
+    socket.emit("chat-message", { roomId, userId, text });
+    setMessages((items) => [...items, { userId, text, sentAt: Date.now() }].slice(-100));
+    setChatDraft("");
+  };
+
+  const sendReaction = (emoji) => {
+    const now = Date.now();
+    if (!emoji || now - lastReactionAt.current < 150) return;
+    lastReactionAt.current = now;
+    socket.emit("reaction", { roomId, userId, emoji });
+    const key = now + Math.random();
+    setReaction({ emoji, userId, key });
+    window.setTimeout(() => setReaction((current) => current?.key === key ? null : current), 1900);
   };
 
   const copyInvite = async () => {
     await navigator.clipboard.writeText(`${location.origin}/chat-room/${roomId}`);
     setNotice("Invite link copied.");
   };
+
+  const markerScale = Math.min(1, 1920 / shareSize.width, 1920 / shareSize.height);
+  const markerWidth = Math.max(1, Math.round(shareSize.width * markerScale));
+  const markerHeight = Math.max(1, Math.round(shareSize.height * markerScale));
 
   return <main className="call-page">
     <header className="call-header"><a className="brand" href="/">◉ <span>pair</span></a><div className="room-label">ROOM <b>{roomId.slice(0, 8).toUpperCase()}</b></div><button className="invite-button" onClick={copyInvite}>＋ <span>Invite someone</span></button></header>
@@ -281,17 +348,21 @@ export default function ChatRoom() {
           {!remotePresent && <div className="empty-state"><div className="avatar">＋</div><strong>Waiting for your guest</strong><span>Share the room link to get started</span><button onClick={copyInvite}>Copy invite link</button></div>}
           {remotePresent && !remoteMedia.cameraOn && !remoteShare && <div className="media-state-overlay"><span>▧</span><b>Camera off</b></div>}
           {remotePresent && !remoteMedia.micOn && <div className="media-badge">♩̸ Muted</div>}
-          {remoteShare && remoteMarkers && <canvas ref={canvas} className="marker-canvas" width="1600" height="900" />}
+          {remoteShare && <canvas ref={canvas} className="marker-canvas" width={markerWidth} height={markerHeight} />}
           <div className="video-name">Guest <i className={remotePresent ? "online" : ""} /></div>
         </article>
         <article className={`video-card local-card ${sharing ? "share-primary sharing-preview" : ""}`}>
           <video ref={localVideo} autoPlay playsInline muted />
           {!cameraOn && !sharing && <div className="camera-off">Camera is off</div>}
-          {sharing && markers && <canvas ref={canvas} className="marker-canvas drawing" width="1600" height="900" onPointerDown={(e) => { drawing.current = true; const r = canvas.current.getBoundingClientRect(); markerChannel.current?.readyState === "open" && markerChannel.current.send(JSON.stringify({ type: "start", x: (e.clientX-r.left)/r.width, y: (e.clientY-r.top)/r.height })); draw(e); }} onPointerMove={draw} onPointerUp={() => { drawing.current = false; canvas.current?.getContext("2d")?.beginPath(); }} />}
+          {!micOn && <div className="media-badge self-media-badge">♩̸ Muted</div>}
+          {sharing && <canvas ref={canvas} className={`marker-canvas ${markers ? "drawing" : ""}`} width={markerWidth} height={markerHeight} onPointerDown={beginMarker} onPointerMove={moveMarker} onPointerUp={() => { drawing.current = false; }} onPointerCancel={() => { drawing.current = false; }} />}
           <div className="video-name">You <i className="online" /></div>
         </article>
       </div>
-      {sharing && <div className="share-tools"><span>Screen sharing</span><button className={markers ? "active" : ""} onClick={() => setMarkers(!markers)}>✎ Mark</button><button onClick={clearCanvas}>Clear</button><button className={shareAudio ? "active" : ""} onClick={toggleShareAudio}>♫ Share audio {shareAudio ? "On" : "Off"}</button></div>}
+      {sharing && <div className="share-tools"><span>Screen sharing</span><button className={markers ? "active" : ""} onClick={() => setMarkers(!markers)}>✎ {markers ? "Stop drawing" : "Draw on screen"}</button><button onClick={clearCanvas}>Clear</button><button className={shareAudio ? "active" : ""} onClick={toggleShareAudio}>♫ Share audio {shareAudio ? "On" : "Off"}</button></div>}
+      {reaction && <div className="reaction-burst" key={reaction.key}><span>{reaction.emoji}</span><small>{reaction.userId === userId ? "You" : "Guest"}</small></div>}
+      {chatOpen && <aside className="chat-panel"><header><strong>Messages</strong><button onClick={() => setChatOpen(false)}>×</button></header><div className="message-list">{messages.length === 0 && <p className="chat-empty">Say hello to get things going.</p>}{messages.map((message, index) => <div className={`message ${message.userId === userId ? "mine" : "theirs"}`} key={`${message.sentAt}-${index}`}><b>{message.userId === userId ? "You" : "Guest"}</b><span>{message.text}</span></div>)}</div><form onSubmit={sendMessage}><input value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} placeholder="Write a message…" maxLength={1000} /><button disabled={!chatDraft.trim()}>↑</button></form></aside>}
+      {reactionsOpen && <div className="reaction-tray">{["❤️", "😂", "👏", "🔥", "🎉"].map((emoji) => <button key={emoji} onClick={() => sendReaction(emoji)}>{emoji}</button>)}<button className="custom-emoji-button" onClick={() => setCustomEmojiOpen(!customEmojiOpen)}>＋</button>{customEmojiOpen && <form onSubmit={(event) => { event.preventDefault(); sendReaction(customEmoji.trim()); setCustomEmoji(""); setCustomEmojiOpen(false); }}><input autoFocus value={customEmoji} onChange={(event) => setCustomEmoji(event.target.value)} placeholder="Paste any emoji" maxLength={12} /><button disabled={!customEmoji.trim()}>Send</button></form>}</div>}
       {notice && <div className="notice">{notice}<button onClick={() => setNotice("")}>×</button></div>}
       {!joined && !notice && <div className="notice">Connecting to your devices…</div>}
     </section>
@@ -299,7 +370,8 @@ export default function ChatRoom() {
       <button className={`control ${!micOn ? "muted" : ""}`} onClick={() => toggleTrack("audio")} title={micOn ? "Mute microphone" : "Turn on microphone"}>{micOn ? "♩" : "♩̸"}<span>{micOn ? "Mute" : "Unmute"}</span></button>
       <button className={`control ${!cameraOn ? "muted" : ""}`} onClick={() => toggleTrack("video")} title={cameraOn ? "Turn camera off" : "Turn camera on"}>{cameraOn ? "▣" : "▧"}<span>{cameraOn ? "Stop video" : "Start video"}</span></button>
       <button className={`control screen-control ${sharing ? "selected" : ""}`} onClick={sharing ? stopShare : startShare}>{sharing ? "▣" : "▧"}<span>{sharing ? "Stop sharing" : "Share screen"}</span></button>
-      <button className="control marker-control" disabled={!sharing} onClick={() => setMarkers(!markers)}>✎<span>Mark</span></button>
+      <button className={`control ${chatOpen ? "selected" : ""}`} onClick={() => setChatOpen(!chatOpen)}>▤<span>Chat</span></button>
+      <button className={`control marker-control ${reactionsOpen ? "selected" : ""}`} onClick={() => setReactionsOpen(!reactionsOpen)}>☺<span>React</span></button>
       <button className="control leave-control" onClick={() => navigate("/")}>↗<span>Leave</span></button>
     </div><div className="call-status">{remotePresent ? <><i className="online" /> Connected</> : <><i /> Waiting</>}</div></footer>
   </main>;
