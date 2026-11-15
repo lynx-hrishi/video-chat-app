@@ -339,10 +339,10 @@ export default function ChatRoom() {
   const markerWidth = Math.max(1, Math.round(shareSize.width * markerScale));
   const markerHeight = Math.max(1, Math.round(shareSize.height * markerScale));
 
-  return <main className="call-page">
-    <header className="call-header"><a className="brand" href="/">◉ <span>pair</span></a><div className="room-label">ROOM <b>{roomId.slice(0, 8).toUpperCase()}</b></div><button className="invite-button" onClick={copyInvite}>＋ <span>Invite someone</span></button></header>
+  return <main className="call-page grid h-dvh min-h-[520px] grid-rows-[72px_minmax(0,1fr)_98px] bg-[#f6f6f2] text-[#2e312c] max-[700px]:grid-rows-[62px_minmax(0,1fr)_112px]">
+    <header className="call-header flex items-center border-b border-[#e6e6df] bg-[#fafaf7] px-[34px] max-[700px]:px-4"><a className="brand" href="/">◉ <span>pair</span></a><div className="room-label ml-[34px] max-[700px]:ml-4">ROOM <b>{roomId.slice(0, 8).toUpperCase()}</b></div><button className="invite-button ml-auto rounded-md border border-[#dedfd7] bg-white px-[14px] py-[10px] text-xs font-semibold text-[#526349] max-[700px]:px-[10px] max-[700px]:py-2" onClick={copyInvite}>＋ <span>Invite someone</span></button></header>
     <section className={`stage ${(sharing || remoteShare) ? `share-layout ${(sharing ? "local" : "remote")}-share ${shareSize.width / shareSize.height < 1 ? "portrait-share" : "landscape-share"}` : ""}`}>
-      <div className="video-grid">
+      <div className="video-grid grid min-h-0 grid-cols-2 gap-[15px] max-[700px]:grid-cols-1 max-[700px]:grid-rows-2 max-[700px]:gap-[10px]">
         <article className={`video-card remote-card ${remoteShare ? "share-primary" : ""}`}>
           <video ref={remoteVideo} autoPlay playsInline />
           {!remotePresent && <div className="empty-state"><div className="avatar">＋</div><strong>Waiting for your guest</strong><span>Share the room link to get started</span><button onClick={copyInvite}>Copy invite link</button></div>}
@@ -366,7 +366,7 @@ export default function ChatRoom() {
       {notice && <div className="notice">{notice}<button onClick={() => setNotice("")}>×</button></div>}
       {!joined && !notice && <div className="notice">Connecting to your devices…</div>}
     </section>
-    <footer className="control-bar"><div className="call-time"><span className="live-dot" />Private call <small>•</small> 2 person limit</div><div className="controls">
+    <footer className="control-bar grid grid-cols-[1fr_auto_1fr] items-center px-[34px] max-[700px]:grid-cols-1 max-[700px]:px-3"><div className="call-time"><span className="live-dot" />Private call <small>•</small> 2 person limit</div><div className="controls flex items-center gap-[9px] max-[700px]:justify-center max-[700px]:gap-[3px]">
       <button className={`control ${!micOn ? "muted" : ""}`} onClick={() => toggleTrack("audio")} title={micOn ? "Mute microphone" : "Turn on microphone"}>{micOn ? "♩" : "♩̸"}<span>{micOn ? "Mute" : "Unmute"}</span></button>
       <button className={`control ${!cameraOn ? "muted" : ""}`} onClick={() => toggleTrack("video")} title={cameraOn ? "Turn camera off" : "Turn camera on"}>{cameraOn ? "▣" : "▧"}<span>{cameraOn ? "Stop video" : "Start video"}</span></button>
       <button className={`control screen-control ${sharing ? "selected" : ""}`} onClick={sharing ? stopShare : startShare}>{sharing ? "▣" : "▧"}<span>{sharing ? "Stop sharing" : "Share screen"}</span></button>
