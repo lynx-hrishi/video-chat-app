@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
-    allowedHosts: ['94c4c39b1c69.ngrok-free.app'],
+    allowedHosts: ['video-chat-app-1-tc5y.onrender.com'],
     proxy: {  
       "/api": "https://video-chat-app-cevy.onrender.com"
     }
