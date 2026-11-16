@@ -7,10 +7,7 @@ export default defineConfig({
   server: {
     allowedHosts: ['94c4c39b1c69.ngrok-free.app'],
     proxy: {  
-      "/api": "http://localhost:3000",
-      "/get-user-id": "https://treaty-ricky-employer-arranged.trycloudflare.com/",
-      "/user": "http://localhost:3000",
-      "/events/be": "http://localhost:3000"
+      "/api": "https://video-chat-app-cevy.onrender.com"
     }
   }
 })
