@@ -42,28 +42,28 @@ function getConnectedToIceServers({ localStream, remoteVideo, socket, roomId, se
     };
 
     pc.onconnectionstatechange = () => {
-        console.log("Connection state:", pc.connectionState);
+        // console.log("Connection state:", pc.connectionState);
         if (pc.connectionState === "connected") setIsConnected(true);
     };
 
     pc.oniceconnectionstatechange = () => {
-        console.log("ICE state:", pc.iceConnectionState);
+        // console.log("ICE state:", pc.iceConnectionState);
     };
 
     pc.onicegatheringstatechange = () => {
-        console.log("ICE gathering state:", pc.iceGatheringState);
+        // console.log("ICE gathering state:", pc.iceGatheringState);
     };
     localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
     return pc;
 }
 
 const handleUserConnected = (userId) => {
-    console.log(`User Connected: ${userId}`);
+    // console.log(`User Connected: ${userId}`);
 }
 
 const handleOffer = async ({ offer, role, roomId, pc, socket }) => {
     if (role === 'creating') return;
-    console.log("Offer Recieved");
+    // console.log("Offer Recieved");
     // await waitForLocalStream();
     await pc.current.setRemoteDescription(new RTCSessionDescription(offer));
     const answer = await pc.current.createAnswer();
@@ -72,7 +72,7 @@ const handleOffer = async ({ offer, role, roomId, pc, socket }) => {
 }
 
 const handleAnswer = async ({ answer, pc}) => {
-    console.log("answer rec", { answer });
+    // console.log("answer rec", { answer });
     await pc.current.setRemoteDescription(new RTCSessionDescription(answer));
 }
 
@@ -86,7 +86,7 @@ const handleIceCandidate = async ({ candidate, pc }) => {
 }
 
 const handleUserDisconnected = async ({ userId, setUserStream, roomId, pc, setIsConnected, socket, remoteVideo }) => {
-    console.log("user disconnected", userId);
+    // console.log("user disconnected", userId);
 
     if (pc.current) {
         pc.current.onicecandidate = null;
@@ -104,9 +104,9 @@ const handleUserDisconnected = async ({ userId, setUserStream, roomId, pc, setIs
     pc.current = getConnectedToIceServers({ localStream: stream, remoteVideo, socket, roomId, setIsConnected });
     const offer = await pc.current.createOffer();
     await pc.current.setLocalDescription(offer);
-    console.log("New Offer created");
+    // console.log("New Offer created");
     socket.emit("update-offer", { offer, roomId });
-    console.log("creating new connection", { pccur: pc.current })
+    // console.log("creating new connection", { pccur: pc.current })
 
 
     if (remoteVideo.current?.srcObject) {
