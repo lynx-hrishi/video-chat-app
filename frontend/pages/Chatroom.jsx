@@ -24,6 +24,9 @@ export default function ChatRoom() {
   const { roomId } = useParams();
   const navigate = useNavigate();
   const userId = identityFor(roomId);
+  const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const canCaptureScreen = window.isSecureContext && typeof navigator.mediaDevices?.getDisplayMedia === "function";
   const localVideo = useRef(null);
   const remoteVideo = useRef(null);
   const canvas = useRef(null);
@@ -246,73 +249,32 @@ export default function ChatRoom() {
   }, [roomId, userId]);
 
   const startShare = async () => {
-    if (!pc.current || !localStream.current) {
-      setNotice("Wait for the call to connect before sharing your screen.");
-      return;
-    }
-    if (!window.isSecureContext) {
-      setNotice("Screen sharing requires a secure HTTPS connection on mobile.");
-      return;
-    }
-    if (typeof navigator.mediaDevices?.getDisplayMedia !== "function") {
-      setNotice("Screen sharing is not available in this browser. Use Safari 27 or later on iPhone/iPad, or a supported desktop browser.");
-      return;
-    }
-
-    let stream;
-    let videoSender;
     try {
-      // Keep the initial request conservative: mobile browsers can reject display
-      // capture when frame-rate constraints are included in the picker request.
-      stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: true });
       screenStream.current = stream;
       const videoTrack = stream.getVideoTracks()[0];
-      if (!videoTrack) throw new Error("No screen video track was returned by the browser.");
       const settings = videoTrack.getSettings();
-      const screenIsLandscape = window.screen.width >= window.screen.height;
-      const width = settings.width || (screenIsLandscape ? window.screen.width : window.screen.height) || 16;
-      const height = settings.height || (screenIsLandscape ? window.screen.height : window.screen.width) || 9;
+      const width = settings.width || 16; const height = settings.height || 9;
       setShareSize({ width, height });
-      videoSender = pc.current?.getSenders().find((item) => item.track?.kind === "video");
-      if (videoSender) await videoSender.replaceTrack(videoTrack);
-      else if (pc.current) pc.current.addTrack(videoTrack, stream);
-      if (localVideo.current) {
-        localVideo.current.srcObject = stream;
-        await localVideo.current.play().catch(() => {});
-      }
+      const sender = pc.current?.getSenders().find((item) => item.track?.kind === "video");
+      if (sender) await sender.replaceTrack(videoTrack);
+      if (localVideo.current) localVideo.current.srcObject = stream;
       const systemAudio = stream.getAudioTracks()[0];
       if (systemAudio) systemAudio.enabled = false;
       const microphone = localStream.current?.getAudioTracks()[0];
       const audioSender = pc.current?.getSenders().find((item) => item.track?.kind === "audio");
       if (systemAudio && microphone && audioSender) {
-        try {
-          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-          if (!AudioContextClass) throw new Error("Audio mixing is unavailable.");
-          const context = new AudioContextClass(); audioContext.current = context;
-          const destination = context.createMediaStreamDestination();
-          context.createMediaStreamSource(new MediaStream([microphone])).connect(destination);
-          context.createMediaStreamSource(new MediaStream([systemAudio])).connect(destination);
-          await audioSender.replaceTrack(destination.stream.getAudioTracks()[0]);
-        } catch (audioError) {
-          console.warn("Screen video will continue without shared system audio", audioError);
-          systemAudio.stop();
-          setNotice("Screen sharing is active, but this browser cannot share screen audio.");
-        }
+        const context = new AudioContext(); audioContext.current = context;
+        const destination = context.createMediaStreamDestination();
+        context.createMediaStreamSource(new MediaStream([microphone])).connect(destination);
+        context.createMediaStreamSource(new MediaStream([systemAudio])).connect(destination);
+        await audioSender.replaceTrack(destination.stream.getAudioTracks()[0]);
       }
       videoTrack.onended = () => stopShare();
       socket.emit("share-state", { roomId, userId, state: { active: true, width, height } });
       playSound("presentation-start");
       setSharing(true);
-    } catch (error) {
-      stream?.getTracks().forEach((track) => track.stop());
-      screenStream.current = null;
-      const camera = localStream.current?.getVideoTracks()[0];
-      if (videoSender && camera) await videoSender.replaceTrack(camera).catch(() => {});
-      if (localVideo.current && localStream.current) localVideo.current.srcObject = localStream.current;
-      if (error.name !== "NotAllowedError") {
-        setNotice(error.message || "Screen sharing could not be started. Check the browser's screen capture permission.");
-      }
-    }
+    } catch (error) { if (error.name !== "NotAllowedError") setNotice("Screen sharing could not be started."); }
   };
 
   const toggleShareAudio = () => {
@@ -430,7 +392,7 @@ export default function ChatRoom() {
     <footer className="control-bar grid grid-cols-[1fr_auto_1fr] items-center px-[34px] max-[700px]:grid-cols-1 max-[700px]:px-3"><div className="call-time"><span className="live-dot" />Private call <small>•</small> 2 person limit</div><div className="controls flex items-center gap-[9px] max-[700px]:justify-center max-[700px]:gap-[3px]">
       <button className={`control ${!micOn ? "muted" : ""}`} onClick={() => toggleTrack("audio")} title={micOn ? "Mute microphone" : "Turn on microphone"}>{micOn ? "♩" : "♩̸"}<span>{micOn ? "Mute" : "Unmute"}</span></button>
       <button className={`control ${!cameraOn ? "muted" : ""}`} onClick={() => toggleTrack("video")} title={cameraOn ? "Turn camera off" : "Turn camera on"}>{cameraOn ? "▣" : "▧"}<span>{cameraOn ? "Stop video" : "Start video"}</span></button>
-      <button className={`control screen-control ${sharing ? "selected" : ""}`} onClick={sharing ? stopShare : startShare}>{sharing ? "▣" : "▧"}<span>{sharing ? "Stop sharing" : "Share screen"}</span></button>
+      {(!isMobileDevice || canCaptureScreen) && <button className={`control screen-control ${sharing ? "selected" : ""}`} onClick={sharing ? stopShare : startShare}>{sharing ? "▣" : "▧"}<span>{sharing ? "Stop sharing" : "Share screen"}</span></button>}
       <button className={`control chat-control ${chatOpen ? "selected" : ""}`} onClick={() => { setChatOpen((open) => !open); setUnreadMessage(false); }} aria-label="Open chat">▤{unreadMessage && !chatOpen && <i className="unread-dot" />}<span>Chat</span></button>
       <button className={`control marker-control ${reactionsOpen ? "selected" : ""}`} onClick={() => setReactionsOpen(!reactionsOpen)}>☺<span>React</span></button>
       <button className="control leave-control" onClick={() => navigate("/")}>↗<span>Leave</span></button>

@@ -209,6 +209,8 @@ html[data-theme="dark"] .theme-toggle:focus-visible { outline-color: #c4d9b8; }
 .room-label { font-size: 10px !important; }
 .room-label b { font-size: 12px !important; }
 .invite-button { font-size: 13px !important; }
+.reaction-burst small { display: inline-block; border-radius: 999px; background: #344b3c; color: #fff !important; padding: 4px 8px; font-size: 13px !important; font-weight: 700; }
+html[data-theme="dark"] .reaction-burst small { color: #f1f5ed !important; }
 
 @media (max-width: 700px) {
   .control-bar { min-width: 0; overflow: hidden; }
