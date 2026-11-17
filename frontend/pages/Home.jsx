@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import ThemeToggle from "../components/ThemeToggle";
+import { persistRoomIdentity } from "../utils/roomIdentity";
 import "./Home.css";
 
 export default function Home() {
@@ -12,6 +13,7 @@ export default function Home() {
       const response = await fetch("/api/create-room");
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Could not create a room");
+      persistRoomIdentity(data.roomId, data.userId);
       navigate(`/chat-room/${data.roomId}`);
     } catch { setError("Could not reach the server. Please try again."); }
   };

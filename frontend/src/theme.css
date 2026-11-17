@@ -183,6 +183,27 @@ html[data-theme="dark"] .reaction-tray form button { background: #547454; color:
 html[data-theme="dark"] .theme-toggle:hover { background: #354536; }
 html[data-theme="dark"] .control:focus-visible,
 html[data-theme="dark"] .theme-toggle:focus-visible { outline-color: #c4d9b8; }
+html[data-theme="dark"] .prejoin-card,
+html[data-theme="dark"] .settings-panel { background: #202822; border-color: #3b463d; color: #e8ece5; }
+html[data-theme="dark"] .prejoin-card h1,
+html[data-theme="dark"] .settings-panel>header,
+html[data-theme="dark"] .settings-toggle b { color: #edf2e9; }
+html[data-theme="dark"] .prejoin-card>p,
+html[data-theme="dark"] .settings-toggle small,
+html[data-theme="dark"] .settings-name-form>label { color: #bdc8b8; }
+html[data-theme="dark"] .prejoin-field { color: #d4dfcf; }
+html[data-theme="dark"] .prejoin-field input,
+html[data-theme="dark"] .settings-name-form input { background: #18201a; border-color: #465247; color: #f1f4ee; }
+html[data-theme="dark"] .prejoin-field input::placeholder,
+html[data-theme="dark"] .settings-name-form input::placeholder { color: #aab5a8; }
+html[data-theme="dark"] .prejoin-media-controls button { background: #2b352d; border-color: #465247; color: #e5ece1; }
+html[data-theme="dark"] .prejoin-media-controls button small { color: #c3d7b7; }
+html[data-theme="dark"] .prejoin-media-controls button.is-off { background: #492b29; border-color: #75413b; color: #ffb4a8; }
+html[data-theme="dark"] .prejoin-media-controls button.is-off small,
+html[data-theme="dark"] .prejoin-notice { color: #ffb4a8 !important; }
+html[data-theme="dark"] .prejoin-secondary { border-color: #465247; color: #e5ece1; }
+html[data-theme="dark"] .settings-toggle { border-color: #3a443b; }
+html[data-theme="dark"] .settings-panel>header button { color: #c5d0c1; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

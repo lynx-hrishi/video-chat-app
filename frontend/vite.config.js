@@ -5,9 +5,10 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
-    allowedHosts: ['video-chat-app-1-tc5y.onrender.com'],
+    allowedHosts: ['pair-video-chat-app.onrender.com'],
     proxy: {  
-      "/api": "https://video-chat-app-cevy.onrender.com"
+      // "/api": "https://video-chat-app-cevy.onrender.com"
+      "/api": "http://localhost:3000"
     }
   }
 })

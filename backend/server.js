@@ -5,7 +5,7 @@ import { v4 } from "uuid";
 import cors from "cors";
 import dotenv from "dotenv";
 import { loggerMiddleware } from "./utils/logger.js";
-import { answerSocketHandler, disconnectSocketHandler, disconnectUserSocketHandler, iceCandidateSocketHandler, offerSocketHandler, updateOfferSocketHandler, rooms, getInformationOfRooms, messageSocketHandler, joinRoom, mediaStateSocketHandler, shareStateSocketHandler, chatMessageSocketHandler, reactionSocketHandler } from "./services/socketServices.js";
+import { answerSocketHandler, disconnectSocketHandler, disconnectUserSocketHandler, iceCandidateSocketHandler, offerSocketHandler, updateOfferSocketHandler, rooms, getInformationOfRooms, createRoom, messageSocketHandler, joinRoom, requestJoin, respondToJoinRequest, cancelJoinRequest, updateRoomSettings, updateParticipantName, mediaStateSocketHandler, shareStateSocketHandler, chatMessageSocketHandler, reactionSocketHandler } from "./services/socketServices.js";
 
 dotenv.config({ quiet: true });
 
@@ -36,7 +36,10 @@ app.use(loggerMiddleware);
 app.get("/", (req, res) => res.json({ message: "Hello from Video Chat App" }));
 
 app.get("/api/create-room", (req, res) => {
-    return res.json({ roomId: uuidV4(), userId: uuidV4() });
+    const roomId = uuidV4();
+    const userId = uuidV4();
+    createRoom({ roomId, hostUserId: userId });
+    return res.json({ roomId, userId });
 });
 
 app.get("/api/get-user-id/:roomId", (req, res) => {
@@ -54,9 +57,17 @@ app.get("/api/get-user-id/:roomId", (req, res) => {
 });
 
 io.on("connection", socket => {
-    socket.on("join-room", (roomId, userId) => joinRoom({ roomId, userId, socket, io }));
-    socket.on("disconnect-user", (r_id, u_id) => disconnectUserSocketHandler({ r_id, u_id, socket }));
-    socket.on("disconnect", () => disconnectSocketHandler({ socket }));
+    socket.on("join-room", (data, legacyUserId) => {
+        const details = typeof data === "string" ? { roomId: data, userId: legacyUserId } : data;
+        joinRoom({ ...details, socket, io });
+    });
+    socket.on("request-join", (data) => requestJoin({ data, socket, io }));
+    socket.on("respond-to-join-request", (data) => respondToJoinRequest({ data, socket, io }));
+    socket.on("cancel-join-request", (data) => cancelJoinRequest({ data, socket, io }));
+    socket.on("room-settings-update", (data) => updateRoomSettings({ data, socket, io }));
+    socket.on("participant-name-update", (data) => updateParticipantName({ data, socket, io }));
+    socket.on("disconnect-user", (r_id, u_id) => disconnectUserSocketHandler({ r_id, u_id, socket, io }));
+    socket.on("disconnect", () => disconnectSocketHandler({ socket, io }));
     
     socket.on("offer", (data) => offerSocketHandler({ data, socket, io }));
 

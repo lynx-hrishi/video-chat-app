@@ -1,18 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import socket from "../components/Websocket/Socket_Connector";
 import ThemeToggle from "../components/ThemeToggle";
+import { getOrCreateRoomUserId } from "../utils/roomIdentity";
 import "./Chatroom.css";
-
-const identityFor = (roomId) => {
-  const key = `peerroom:${roomId}:userId`;
-  let id = localStorage.getItem(key);
-  if (!id) {
-    id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    localStorage.setItem(key, id);
-  }
-  return id;
-};
 
 const playSound = (file) => {
   const audio = new Audio(`/sounds/${file}.mp3`);
@@ -23,7 +14,7 @@ const playSound = (file) => {
 export default function ChatRoom() {
   const { roomId } = useParams();
   const navigate = useNavigate();
-  const userId = identityFor(roomId);
+  const userId = useMemo(() => getOrCreateRoomUserId(roomId), [roomId]);
   const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
     || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const canCaptureScreen = window.isSecureContext && typeof navigator.mediaDevices?.getDisplayMedia === "function";
@@ -42,6 +33,16 @@ export default function ChatRoom() {
   const pendingCandidates = useRef([]);
   const hasJoined = useRef(false);
   const mediaState = useRef({ micOn: true, cameraOn: true });
+  const [callStage, setCallStage] = useState("prejoin");
+  const [mediaReady, setMediaReady] = useState(false);
+  const [displayName, setDisplayName] = useState(() => localStorage.getItem("pair:displayName") || "");
+  const displayNameRef = useRef(displayName);
+  displayNameRef.current = displayName;
+  const [remoteName, setRemoteName] = useState("");
+  const [isHost, setIsHost] = useState(false);
+  const [anyoneCanJoin, setAnyoneCanJoin] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [joinRequest, setJoinRequest] = useState(null);
   const [joined, setJoined] = useState(false);
   const [remotePresent, setRemotePresent] = useState(false);
   const [remoteMedia, setRemoteMedia] = useState({ micOn: true, cameraOn: true });
@@ -108,27 +109,71 @@ export default function ChatRoom() {
     let active = true;
     (async () => {
       try {
-        localStream.current = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-        if (!active) { localStream.current.getTracks().forEach((track) => track.stop()); return; }
-        if (localVideo.current) localVideo.current.srcObject = localStream.current;
-        makePeer();
-        socket.emit("join-room", roomId, userId);
-        socket.emit("media-state", { roomId, userId, ...mediaState.current });
-        hasJoined.current = true;
-        setJoined(true);
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        if (!active) { stream.getTracks().forEach((track) => track.stop()); return; }
+        localStream.current = stream;
+        stream.getAudioTracks().forEach((track) => { track.enabled = mediaState.current.micOn; });
+        stream.getVideoTracks().forEach((track) => { track.enabled = mediaState.current.cameraOn; });
+        if (localVideo.current) localVideo.current.srcObject = stream;
+        if (pc.current) stream.getTracks().forEach((track) => {
+          if (!pc.current.getSenders().some((sender) => sender.track?.kind === track.kind)) pc.current.addTrack(track, stream);
+        });
+        setMediaReady(true);
+        setNotice("");
       } catch (error) {
-        setNotice(error.name === "NotAllowedError" ? "Allow camera and microphone access to join." : "Could not start your camera and microphone.");
+        if (!active) return;
+        localStream.current = new MediaStream();
+        mediaState.current = { micOn: false, cameraOn: false };
+        setMicOn(false);
+        setCameraOn(false);
+        setNotice(error.name === "NotAllowedError" ? "Camera and microphone are blocked. You can still join with both off." : "Camera and microphone are unavailable. You can still join with both off.");
+        setMediaReady(true);
       }
     })();
-    const onConnected = ({ userId: peerId, count }) => {
+    return () => {
+      active = false;
+      localStream.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, [roomId]);
+
+  useEffect(() => {
+    if (callStage === "in-call" && localVideo.current) {
+      localVideo.current.srcObject = sharing && screenStream.current ? screenStream.current : localStream.current;
+    }
+  }, [callStage, sharing]);
+
+  useEffect(() => {
+    const onRoomJoined = ({ isHost: host, settings }) => {
+      setIsHost(Boolean(host));
+      setAnyoneCanJoin(Boolean(settings?.anyoneCanJoin));
+      if (localStream.current) {
+        localStream.current.getAudioTracks().forEach((track) => { track.enabled = mediaState.current.micOn; });
+        localStream.current.getVideoTracks().forEach((track) => { track.enabled = mediaState.current.cameraOn; });
+      }
+      makePeer();
+      hasJoined.current = true;
+      setJoined(true);
+      setCallStage("in-call");
+      setNotice("");
+      socket.emit("media-state", { roomId, userId, ...mediaState.current });
+    };
+    const onConnected = ({ userId: peerId, count, name, micOn: peerMic, cameraOn: peerCamera }) => {
       if (peerId === userId) return;
       setRemotePresent(true);
+      setRemoteName(name || "");
+      setRemoteMedia({ micOn: peerMic, cameraOn: peerCamera });
       setNotice("");
       if (count === 2) createOffer().catch(console.error);
     };
     const onPeerMedia = ({ userId: peerId, micOn: peerMic, cameraOn: peerCamera }) => {
       if (peerId !== userId) setRemoteMedia({ micOn: peerMic, cameraOn: peerCamera });
     };
+    const onPeerName = ({ userId: peerId, name }) => { if (peerId !== userId) setRemoteName(name || ""); };
+    const onRoomSettings = ({ anyoneCanJoin: allow }) => setAnyoneCanJoin(Boolean(allow));
+    const onJoinRequest = (request) => setJoinRequest(request);
+    const onJoinRequestPending = () => { setCallStage("waiting"); setNotice(""); };
+    const onJoinRequestDeclined = () => { setCallStage("prejoin"); setNotice("The host declined your request to join."); };
+    const onJoinError = ({ message }) => { setCallStage("prejoin"); setNotice(message || "Could not join this room."); };
     const onShareState = ({ userId: peerId, active, width, height }) => {
       if (peerId === userId) return;
       setRemoteShare(active ? { userId: peerId, width, height } : null);
@@ -177,22 +222,33 @@ export default function ChatRoom() {
       setRemotePresent(false);
       playSound("call-leave");
       setRemoteShare(null);
+      setRemoteName("");
       setRemoteMedia({ micOn: true, cameraOn: true });
       if (remoteVideo.current) remoteVideo.current.srcObject = null;
       pendingCandidates.current = [];
       makePeer();
       setNotice("Your guest left. Share the room link to invite them again.");
     };
-    const onFull = () => setNotice("This room already has two people.");
+    const onFull = () => { setCallStage("prejoin"); setNotice("This room already has two people."); };
     const onSocketReconnect = () => {
       if (!hasJoined.current || !localStream.current) return;
       pendingCandidates.current = [];
-      makePeer();
-      socket.emit("join-room", roomId, userId);
+      socket.emit("join-room", { roomId, userId, name: displayNameRef.current, ...mediaState.current });
       socket.emit("media-state", { roomId, userId, ...mediaState.current });
     };
+    const onJoinRequestCancelled = ({ userId: peerId }) => {
+      setJoinRequest((request) => request?.userId === peerId ? null : request);
+    };
+    socket.on("room-joined", onRoomJoined);
     socket.on("user-connected", onConnected);
     socket.on("peer-media-state", onPeerMedia);
+    socket.on("peer-name", onPeerName);
+    socket.on("room-settings", onRoomSettings);
+    socket.on("join-request", onJoinRequest);
+    socket.on("join-request-pending", onJoinRequestPending);
+    socket.on("join-request-declined", onJoinRequestDeclined);
+    socket.on("join-error", onJoinError);
+    socket.on("join-request-cancelled", onJoinRequestCancelled);
     socket.on("share-state", onShareState);
     socket.on("chat-message", onChatMessage);
     socket.on("reaction", onReaction);
@@ -203,9 +259,16 @@ export default function ChatRoom() {
     socket.on("room-full", onFull);
     socket.on("connect", onSocketReconnect);
     return () => {
-      active = false;
+      socket.off("room-joined", onRoomJoined);
       socket.off("user-connected", onConnected);
       socket.off("peer-media-state", onPeerMedia);
+      socket.off("peer-name", onPeerName);
+      socket.off("room-settings", onRoomSettings);
+      socket.off("join-request", onJoinRequest);
+      socket.off("join-request-pending", onJoinRequestPending);
+      socket.off("join-request-declined", onJoinRequestDeclined);
+      socket.off("join-error", onJoinError);
+      socket.off("join-request-cancelled", onJoinRequestCancelled);
       socket.off("share-state", onShareState);
       socket.off("chat-message", onChatMessage);
       socket.off("reaction", onReaction);
@@ -215,21 +278,72 @@ export default function ChatRoom() {
       socket.off("user-disconnected", onDisconnected);
       socket.off("room-full", onFull);
       socket.off("connect", onSocketReconnect);
-      hasJoined.current = false;
-      socket.emit("disconnect-user", roomId, userId);
+      if (hasJoined.current) socket.emit("disconnect-user", roomId, userId);
       pc.current?.close();
-      localStream.current?.getTracks().forEach((track) => track.stop());
       screenStream.current?.getTracks().forEach((track) => track.stop());
+      hasJoined.current = false;
     };
   }, [roomId, userId, makePeer, createOffer]);
 
   const toggleTrack = (kind) => {
-    const track = localStream.current?.getTracks().find((item) => item.kind === kind);
-    if (!track) return;
-    track.enabled = !track.enabled;
-    if (kind === "audio") { setMicOn(track.enabled); mediaState.current.micOn = track.enabled; }
-    else { setCameraOn(track.enabled); mediaState.current.cameraOn = track.enabled; }
-    socket.emit("media-state", { roomId, userId, ...mediaState.current });
+    const toggle = async () => {
+      let track = localStream.current?.getTracks().find((item) => item.kind === kind);
+      if (!track) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: kind === "audio", video: kind === "video" });
+          track = stream.getTracks()[0];
+          if (!localStream.current) localStream.current = new MediaStream();
+          localStream.current.addTrack(track);
+          if (callStage === "in-call" && pc.current) {
+            pc.current.addTrack(track, localStream.current);
+            createOffer().catch(console.error);
+          }
+          if (localVideo.current && kind === "video") localVideo.current.srcObject = localStream.current;
+        } catch {
+          setNotice(kind === "audio" ? "Microphone permission is needed to turn your mic on." : "Camera permission is needed to turn your camera on.");
+          return;
+        }
+      }
+      track.enabled = !track.enabled;
+      if (kind === "audio") { setMicOn(track.enabled); mediaState.current.micOn = track.enabled; }
+      else { setCameraOn(track.enabled); mediaState.current.cameraOn = track.enabled; }
+      if (callStage === "in-call") socket.emit("media-state", { roomId, userId, ...mediaState.current });
+    };
+    toggle();
+  };
+
+  const requestToJoin = () => {
+    const cleanName = displayName.trim().slice(0, 40);
+    localStorage.setItem("pair:displayName", cleanName);
+    setDisplayName(cleanName);
+    mediaState.current = { micOn, cameraOn };
+    if (localStream.current) localStream.current.getTracks().forEach((track) => { track.enabled = track.kind === "audio" ? micOn : cameraOn; });
+    setCallStage("requesting");
+    socket.emit("request-join", { roomId, userId, name: cleanName, micOn, cameraOn });
+  };
+
+  const cancelJoinRequest = () => {
+    socket.emit("cancel-join-request", { roomId });
+    setCallStage("prejoin");
+  };
+
+  const respondToRequest = (accepted) => {
+    if (!joinRequest) return;
+    socket.emit("respond-to-join-request", { roomId, userId, requestId: joinRequest.requestId, accepted });
+    setJoinRequest(null);
+  };
+
+  const saveDisplayName = () => {
+    const cleanName = displayName.trim().slice(0, 40);
+    setDisplayName(cleanName);
+    localStorage.setItem("pair:displayName", cleanName);
+    if (callStage === "in-call") socket.emit("participant-name-update", { roomId, userId, name: cleanName });
+    setNotice("Your name has been saved.");
+  };
+
+  const updateAnyoneCanJoin = (allow) => {
+    setAnyoneCanJoin(allow);
+    socket.emit("room-settings-update", { roomId, userId, anyoneCanJoin: allow });
   };
 
   const stopShare = useCallback(async () => {
@@ -358,6 +472,33 @@ export default function ChatRoom() {
     setNotice("Invite link copied.");
   };
 
+  if (callStage !== "in-call") {
+    return <main className="call-page prejoin-page">
+      <header className="call-header"><a className="brand" href="/">◉ <span>pair</span></a><div className="ml-auto"><ThemeToggle mobileIconOnly /></div></header>
+      <section className="prejoin-stage">
+        <div className="prejoin-card">
+          <div className="prejoin-eyebrow">ROOM {roomId.slice(0, 8).toUpperCase()}</div>
+          <h1>{callStage === "waiting" ? "Waiting for approval" : callStage === "requesting" ? "Joining your call…" : "Ready to join?"}</h1>
+          {callStage === "waiting" ? <p>Your request has been sent to the host.</p> : callStage === "requesting" ? <p>Connecting you to the room…</p> : <p>Choose how you want to appear before you enter.</p>}
+          <div className="prejoin-preview">
+            <video ref={localVideo} autoPlay playsInline muted />
+            {!cameraOn && <div className="prejoin-camera-off">Camera off</div>}
+            <span className="prejoin-name">{displayName.trim() || "Your name"}</span>
+          </div>
+          {callStage === "prejoin" && <>
+            <label className="prejoin-field"><span>Your name</span><input value={displayName} onChange={(event) => setDisplayName(event.target.value.slice(0, 40))} placeholder="Enter your name (optional)" maxLength={40} /></label>
+            <div className="prejoin-media-controls">
+              <button type="button" className={!micOn ? "is-off" : ""} onClick={() => toggleTrack("audio")}><span>{micOn ? "♩" : "♩̸"}</span><b>Microphone</b><small>{micOn ? "On" : "Off"}</small></button>
+              <button type="button" className={!cameraOn ? "is-off" : ""} onClick={() => toggleTrack("video")}><span>{cameraOn ? "▣" : "▧"}</span><b>Camera</b><small>{cameraOn ? "On" : "Off"}</small></button>
+            </div>
+          </>}
+          {notice && <p className="prejoin-notice" role="status">{notice}</p>}
+          {callStage === "prejoin" ? <button className="prejoin-join" disabled={!mediaReady} onClick={requestToJoin}>{mediaReady ? "Join call" : "Preparing devices…"}</button> : callStage === "waiting" ? <button className="prejoin-secondary" onClick={cancelJoinRequest}>Cancel request</button> : null}
+        </div>
+      </section>
+    </main>;
+  }
+
   const markerScale = Math.min(1, 1920 / shareSize.width, 1920 / shareSize.height);
   const markerWidth = Math.max(1, Math.round(shareSize.width * markerScale));
   const markerHeight = Math.max(1, Math.round(shareSize.height * markerScale));
@@ -372,19 +513,21 @@ export default function ChatRoom() {
           {remotePresent && !remoteMedia.cameraOn && !remoteShare && <div className="media-state-overlay"><span>▧</span><b>Camera off</b></div>}
           {remotePresent && !remoteMedia.micOn && <div className="media-badge">♩̸ Muted</div>}
           {remoteShare && <canvas ref={canvas} className="marker-canvas" width={markerWidth} height={markerHeight} />}
-          <div className="video-name">Guest <i className={remotePresent ? "online" : ""} /></div>
+          <div className="video-name">{remoteName || "Guest"} <i className={remotePresent ? "online" : ""} /></div>
         </article>
         <article className={`video-card local-card ${sharing ? "share-primary sharing-preview" : ""}`}>
           <video ref={localVideo} autoPlay playsInline muted />
           {!cameraOn && !sharing && <div className="camera-off">Camera is off</div>}
           {!micOn && <div className="media-badge self-media-badge">♩̸ Muted</div>}
           {sharing && <canvas ref={canvas} className={`marker-canvas ${markers ? "drawing" : ""}`} width={markerWidth} height={markerHeight} onPointerDown={beginMarker} onPointerMove={moveMarker} onPointerUp={() => { drawing.current = false; }} onPointerCancel={() => { drawing.current = false; }} />}
-          <div className="video-name">You <i className="online" /></div>
+          <div className="video-name">{displayName.trim() || "You"} <i className="online" /></div>
         </article>
       </div>
       {sharing && <div className="share-tools"><span>Screen sharing</span><button className={markers ? "active" : ""} onClick={() => setMarkers(!markers)}>✎ {markers ? "Stop drawing" : "Draw on screen"}</button><button onClick={clearCanvas}>Clear</button><button className={shareAudio ? "active" : ""} onClick={toggleShareAudio}>♫ Share audio {shareAudio ? "On" : "Off"}</button></div>}
-      {reaction && <div className="reaction-burst" key={reaction.key}><span>{reaction.emoji}</span><small>{reaction.userId === userId ? "You" : "Guest"}</small></div>}
-      <aside className={`chat-panel ${chatOpen ? "panel-open" : "panel-closed"}`} aria-hidden={!chatOpen} inert={!chatOpen}><header><strong>Messages</strong><button onClick={() => setChatOpen(false)}>×</button></header><div className="message-list">{messages.length === 0 && <p className="chat-empty">Say hello to get things going.</p>}{messages.map((message, index) => <div className={`message ${message.userId === userId ? "mine" : "theirs"}`} key={`${message.sentAt}-${index}`}><b>{message.userId === userId ? "You" : "Guest"}</b><span>{message.text}</span></div>)}</div><form onSubmit={sendMessage}><input value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} placeholder="Write a message…" maxLength={1000} /><button disabled={!chatDraft.trim()}>↑</button></form></aside>
+      {joinRequest && <div className="permission-backdrop"><section className="permission-card" role="dialog" aria-modal="true" aria-labelledby="join-permission-title"><span className="permission-icon">＋</span><h2 id="join-permission-title">Someone wants to join</h2><p className="permission-name">{joinRequest.name || "Guest"}</p><div className="permission-media"><span>{joinRequest.micOn ? "♩ Mic on" : "♩̸ Mic off"}</span><span>{joinRequest.cameraOn ? "▣ Camera on" : "▧ Camera off"}</span></div><div className="permission-actions"><button className="permission-decline" onClick={() => respondToRequest(false)}>Decline</button><button className="permission-accept" onClick={() => respondToRequest(true)}>Accept</button></div></section></div>}
+      {settingsOpen && <aside className="settings-panel"><header><strong>Call settings</strong><button onClick={() => setSettingsOpen(false)} aria-label="Close settings">×</button></header><label className={`settings-toggle ${!isHost ? "settings-disabled" : ""}`}><span><b>Anyone can join</b><small>{isHost ? "Let people enter without approval" : "Only the host can change this"}</small></span><input type="checkbox" checked={anyoneCanJoin} disabled={!isHost} onChange={(event) => updateAnyoneCanJoin(event.target.checked)} /></label><form className="settings-name-form" onSubmit={(event) => { event.preventDefault(); saveDisplayName(); }}><label htmlFor="display-name">Your name</label><div><input id="display-name" value={displayName} onChange={(event) => setDisplayName(event.target.value.slice(0, 40))} placeholder="Enter your name" maxLength={40} /><button type="submit">Save</button></div></form></aside>}
+      {reaction && <div className="reaction-burst" key={reaction.key}><span>{reaction.emoji}</span><small>{reaction.userId === userId ? (displayName.trim() || "You") : (remoteName || "Guest")}</small></div>}
+      <aside className={`chat-panel ${chatOpen ? "panel-open" : "panel-closed"}`} aria-hidden={!chatOpen} inert={!chatOpen}><header><strong>Messages</strong><button onClick={() => setChatOpen(false)}>×</button></header><div className="message-list">{messages.length === 0 && <p className="chat-empty">Say hello to get things going.</p>}{messages.map((message, index) => <div className={`message ${message.userId === userId ? "mine" : "theirs"}`} key={`${message.sentAt}-${index}`}><b>{message.userId === userId ? (displayName.trim() || "You") : (remoteName || "Guest")}</b><span>{message.text}</span></div>)}</div><form onSubmit={sendMessage}><input value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} placeholder="Write a message…" maxLength={1000} /><button disabled={!chatDraft.trim()}>↑</button></form></aside>
       <div className={`reaction-tray ${reactionsOpen ? "panel-open" : "panel-closed"}`} aria-hidden={!reactionsOpen} inert={!reactionsOpen}>{["❤️", "😂", "👏", "🔥", "🎉"].map((emoji) => <button key={emoji} onClick={() => sendReaction(emoji)}>{emoji}</button>)}<button className="custom-emoji-button" onClick={() => setCustomEmojiOpen(!customEmojiOpen)}>＋</button>{customEmojiOpen && reactionsOpen && <form onSubmit={(event) => { event.preventDefault(); sendReaction(customEmoji.trim()); setCustomEmoji(""); setCustomEmojiOpen(false); }}><input autoFocus value={customEmoji} onChange={(event) => setCustomEmoji(event.target.value)} placeholder="Paste any emoji" maxLength={12} /><button disabled={!customEmoji.trim()}>Send</button></form>}</div>
       {notice && <div className="notice">{notice}<button onClick={() => setNotice("")}>×</button></div>}
       {!joined && !notice && <div className="notice">Connecting to your devices…</div>}
@@ -395,6 +538,7 @@ export default function ChatRoom() {
       {(!isMobileDevice || canCaptureScreen) && <button className={`control screen-control ${sharing ? "selected" : ""}`} onClick={sharing ? stopShare : startShare}>{sharing ? "▣" : "▧"}<span>{sharing ? "Stop sharing" : "Share screen"}</span></button>}
       <button className={`control chat-control ${chatOpen ? "selected" : ""}`} onClick={() => { setChatOpen((open) => !open); setUnreadMessage(false); }} aria-label="Open chat">▤{unreadMessage && !chatOpen && <i className="unread-dot" />}<span>Chat</span></button>
       <button className={`control marker-control ${reactionsOpen ? "selected" : ""}`} onClick={() => setReactionsOpen(!reactionsOpen)}>☺<span>React</span></button>
+      <button className={`control settings-control ${settingsOpen ? "selected" : ""}`} onClick={() => setSettingsOpen((open) => !open)} aria-label="Call settings">⚙<span>Settings</span></button>
       <button className="control leave-control" onClick={() => navigate("/")}>↗<span>Leave</span></button>
     </div><div className="call-status">{remotePresent ? <><i className="online" /> Connected</> : <><i /> Waiting</>}</div></footer>
   </main>;
