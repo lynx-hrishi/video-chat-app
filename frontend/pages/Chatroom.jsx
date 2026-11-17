@@ -246,32 +246,73 @@ export default function ChatRoom() {
   }, [roomId, userId]);
 
   const startShare = async () => {
+    if (!pc.current || !localStream.current) {
+      setNotice("Wait for the call to connect before sharing your screen.");
+      return;
+    }
+    if (!window.isSecureContext) {
+      setNotice("Screen sharing requires a secure HTTPS connection on mobile.");
+      return;
+    }
+    if (typeof navigator.mediaDevices?.getDisplayMedia !== "function") {
+      setNotice("Screen sharing is not available in this browser. Use Safari 27 or later on iPhone/iPad, or a supported desktop browser.");
+      return;
+    }
+
+    let stream;
+    let videoSender;
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: true });
+      // Keep the initial request conservative: mobile browsers can reject display
+      // capture when frame-rate constraints are included in the picker request.
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
       screenStream.current = stream;
       const videoTrack = stream.getVideoTracks()[0];
+      if (!videoTrack) throw new Error("No screen video track was returned by the browser.");
       const settings = videoTrack.getSettings();
-      const width = settings.width || 16; const height = settings.height || 9;
+      const screenIsLandscape = window.screen.width >= window.screen.height;
+      const width = settings.width || (screenIsLandscape ? window.screen.width : window.screen.height) || 16;
+      const height = settings.height || (screenIsLandscape ? window.screen.height : window.screen.width) || 9;
       setShareSize({ width, height });
-      const sender = pc.current?.getSenders().find((item) => item.track?.kind === "video");
-      if (sender) await sender.replaceTrack(videoTrack);
-      if (localVideo.current) localVideo.current.srcObject = stream;
+      videoSender = pc.current?.getSenders().find((item) => item.track?.kind === "video");
+      if (videoSender) await videoSender.replaceTrack(videoTrack);
+      else if (pc.current) pc.current.addTrack(videoTrack, stream);
+      if (localVideo.current) {
+        localVideo.current.srcObject = stream;
+        await localVideo.current.play().catch(() => {});
+      }
       const systemAudio = stream.getAudioTracks()[0];
       if (systemAudio) systemAudio.enabled = false;
       const microphone = localStream.current?.getAudioTracks()[0];
       const audioSender = pc.current?.getSenders().find((item) => item.track?.kind === "audio");
       if (systemAudio && microphone && audioSender) {
-        const context = new AudioContext(); audioContext.current = context;
-        const destination = context.createMediaStreamDestination();
-        context.createMediaStreamSource(new MediaStream([microphone])).connect(destination);
-        context.createMediaStreamSource(new MediaStream([systemAudio])).connect(destination);
-        await audioSender.replaceTrack(destination.stream.getAudioTracks()[0]);
+        try {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (!AudioContextClass) throw new Error("Audio mixing is unavailable.");
+          const context = new AudioContextClass(); audioContext.current = context;
+          const destination = context.createMediaStreamDestination();
+          context.createMediaStreamSource(new MediaStream([microphone])).connect(destination);
+          context.createMediaStreamSource(new MediaStream([systemAudio])).connect(destination);
+          await audioSender.replaceTrack(destination.stream.getAudioTracks()[0]);
+        } catch (audioError) {
+          console.warn("Screen video will continue without shared system audio", audioError);
+          systemAudio.stop();
+          setNotice("Screen sharing is active, but this browser cannot share screen audio.");
+        }
       }
       videoTrack.onended = () => stopShare();
       socket.emit("share-state", { roomId, userId, state: { active: true, width, height } });
       playSound("presentation-start");
       setSharing(true);
-    } catch (error) { if (error.name !== "NotAllowedError") setNotice("Screen sharing could not be started."); }
+    } catch (error) {
+      stream?.getTracks().forEach((track) => track.stop());
+      screenStream.current = null;
+      const camera = localStream.current?.getVideoTracks()[0];
+      if (videoSender && camera) await videoSender.replaceTrack(camera).catch(() => {});
+      if (localVideo.current && localStream.current) localVideo.current.srcObject = localStream.current;
+      if (error.name !== "NotAllowedError") {
+        setNotice(error.message || "Screen sharing could not be started. Check the browser's screen capture permission.");
+      }
+    }
   };
 
   const toggleShareAudio = () => {
