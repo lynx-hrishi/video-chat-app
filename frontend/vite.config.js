@@ -7,8 +7,8 @@ export default defineConfig({
   server: {
     allowedHosts: ['pair-video-chat-app.onrender.com'],
     proxy: {  
-      // "/api": "https://video-chat-app-cevy.onrender.com"
-      "/api": "http://localhost:3000"
+      "/api": "https://video-chat-app-cevy.onrender.com"
+      // "/api": "http://localhost:3000"
     }
   }
 })
